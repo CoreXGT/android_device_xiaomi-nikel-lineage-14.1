@@ -99,3 +99,4 @@ TARGET_SYSTEM_PROP := $(LOCAL_PATH)/system.prop
 
 # Seccomp filter
 BOARD_SECCOMP_POLICY := $(LOCAL_PATH)/seccomp
+BOARD_RIL_CLASS := ../../../device/xiaomi/nikel/ril
