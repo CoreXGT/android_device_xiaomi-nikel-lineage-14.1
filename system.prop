@@ -6,6 +6,8 @@
 # RIL
 rild.libpath=/system/lib64/mtk-ril.so
 rild.libargs=-d /dev/ttyC0
+# NOTE: JANGAN set ro.mtk_ims_support / ro.mtk_volte_support / prop c2k
+# (mtk-ril 2017: getImsParam gagal bila ims_support=1 → SETUP_DATA_CALL GENERIC_FAILURE)
 
 # Wifi
 wifi.interface=wlan0
