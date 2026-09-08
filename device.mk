@@ -74,9 +74,14 @@ ADDITIONAL_DEFAULT_PROPERTIES += ro.adb.secure=0
 ADDITIONAL_DEFAULT_PROPERTIES += ro.secure=0
 ADDITIONAL_DEFAULT_PROPERTIES += ro.debuggable=1
 
-# Optimization     
+# Optimization
 PRODUCT_PROPERTY_OVERRIDES += \
     ro.kernel.android.checkjni=0
+
+# MTK RIL class override (setupDataCall needs 8 params w/ interfaceId)
+PRODUCT_PROPERTY_OVERRIDES += \
+    ro.telephony.ril_class=MediaTekRIL \
+    ro.telephony.ril.config=fakeiccid
 
 # Camera
 PRODUCT_PROPERTY_OVERRIDES += \
