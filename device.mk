@@ -58,6 +58,11 @@ PRODUCT_COPY_FILES += \
     $(LOCAL_PATH)/rootdir/ueventd.mt6797.rc:root/ueventd.mt6797.rc \
     $(LOCAL_PATH)/rootdir/init.recovery.mt6797.rc:root/init.recovery.mt6797.rc
 
+# Sensor permission fix (bsthal needs system-write on sysfs driver nodes;
+# requires MIUI bd13 kernel — SamarV bd04 kernel delivers no sensor data)
+PRODUCT_COPY_FILES += \
+    $(LOCAL_PATH)/rootdir/init.sensor-fix.rc:system/etc/init/sensor-fix.rc
+
 # TWRP
 PRODUCT_COPY_FILES += \
     $(LOCAL_PATH)/recovery/etc/twrp.fstab:recovery/root/etc/twrp.fstab

@@ -1,0 +1,106 @@
+# nikel: sensor sysfs/dev permission fix
+# bsthal (MTK/Bosch sensor HAL, uid system) must write driver nodes;
+# MTK AOSP 6.0 init.project.rc carried these rules, LOS 14.1 does not.
+# Ref: BUGS.md BUG 2 + XDA thread 3760332 post #4 (boot_nikel_aosp.zip)
+
+on post-fs-data
+    # gsensor (bmi160_acc)
+    chown system system /sys/bus/platform/drivers/gsensor/acc_event_mode
+    chown system system /sys/bus/platform/drivers/gsensor/acc_odr
+    chown system system /sys/bus/platform/drivers/gsensor/acc_op_mode
+    chown system system /sys/bus/platform/drivers/gsensor/acc_range
+    chown system system /sys/bus/platform/drivers/gsensor/bmi_ring_buf
+    chown system system /sys/bus/platform/drivers/gsensor/bmi_value
+    chown system system /sys/bus/platform/drivers/gsensor/cali
+    chown system system /sys/bus/platform/drivers/gsensor/chipinfo
+    chown system system /sys/bus/platform/drivers/gsensor/cpsdata
+    chown system system /sys/bus/platform/drivers/gsensor/delay
+    chown system system /sys/bus/platform/drivers/gsensor/dump_reg
+    chown system system /sys/bus/platform/drivers/gsensor/enable_timer
+    chown system system /sys/bus/platform/drivers/gsensor/fifo_bytecount
+    chown system system /sys/bus/platform/drivers/gsensor/fifo_data_frame
+    chown system system /sys/bus/platform/drivers/gsensor/fifo_data_sel
+    chown system system /sys/bus/platform/drivers/gsensor/fifo_flush
+    chown system system /sys/bus/platform/drivers/gsensor/fifo_watermark
+    chown system system /sys/bus/platform/drivers/gsensor/firlen
+    chown system system /sys/bus/platform/drivers/gsensor/layout
+    chown system system /sys/bus/platform/drivers/gsensor/powerstatus
+    chown system system /sys/bus/platform/drivers/gsensor/register
+    chown system system /sys/bus/platform/drivers/gsensor/sensordata
+    chown system system /sys/bus/platform/drivers/gsensor/status
+    chown system system /sys/bus/platform/drivers/gsensor/trace
+    chmod 0660 /sys/bus/platform/drivers/gsensor/acc_event_mode
+    chmod 0660 /sys/bus/platform/drivers/gsensor/acc_odr
+    chmod 0660 /sys/bus/platform/drivers/gsensor/acc_op_mode
+    chmod 0660 /sys/bus/platform/drivers/gsensor/acc_range
+    chmod 0660 /sys/bus/platform/drivers/gsensor/bmi_ring_buf
+    chmod 0660 /sys/bus/platform/drivers/gsensor/bmi_value
+    chmod 0660 /sys/bus/platform/drivers/gsensor/cali
+    chmod 0660 /sys/bus/platform/drivers/gsensor/chipinfo
+    chmod 0660 /sys/bus/platform/drivers/gsensor/cpsdata
+    chmod 0660 /sys/bus/platform/drivers/gsensor/delay
+    chmod 0660 /sys/bus/platform/drivers/gsensor/dump_reg
+    chmod 0660 /sys/bus/platform/drivers/gsensor/enable_timer
+    chmod 0660 /sys/bus/platform/drivers/gsensor/fifo_bytecount
+    chmod 0660 /sys/bus/platform/drivers/gsensor/fifo_data_frame
+    chmod 0660 /sys/bus/platform/drivers/gsensor/fifo_data_sel
+    chmod 0660 /sys/bus/platform/drivers/gsensor/fifo_flush
+    chmod 0660 /sys/bus/platform/drivers/gsensor/fifo_watermark
+    chmod 0660 /sys/bus/platform/drivers/gsensor/firlen
+    chmod 0660 /sys/bus/platform/drivers/gsensor/layout
+    chmod 0660 /sys/bus/platform/drivers/gsensor/powerstatus
+    chmod 0660 /sys/bus/platform/drivers/gsensor/register
+    chmod 0660 /sys/bus/platform/drivers/gsensor/sensordata
+    chmod 0660 /sys/bus/platform/drivers/gsensor/status
+    chmod 0660 /sys/bus/platform/drivers/gsensor/trace
+
+    # gyroscope (bmi160_gyro)
+    chown system system /sys/bus/platform/drivers/gyroscope/cali
+    chown system system /sys/bus/platform/drivers/gyroscope/chipinfo
+    chown system system /sys/bus/platform/drivers/gyroscope/firlen
+    chown system system /sys/bus/platform/drivers/gyroscope/gyro_odr
+    chown system system /sys/bus/platform/drivers/gyroscope/gyro_op_mode
+    chown system system /sys/bus/platform/drivers/gyroscope/gyro_range
+    chown system system /sys/bus/platform/drivers/gyroscope/rawdata
+    chown system system /sys/bus/platform/drivers/gyroscope/selftest
+    chown system system /sys/bus/platform/drivers/gyroscope/sensordata
+    chown system system /sys/bus/platform/drivers/gyroscope/status
+    chown system system /sys/bus/platform/drivers/gyroscope/trace
+    chmod 0660 /sys/bus/platform/drivers/gyroscope/cali
+    chmod 0660 /sys/bus/platform/drivers/gyroscope/chipinfo
+    chmod 0660 /sys/bus/platform/drivers/gyroscope/firlen
+    chmod 0660 /sys/bus/platform/drivers/gyroscope/gyro_odr
+    chmod 0660 /sys/bus/platform/drivers/gyroscope/gyro_op_mode
+    chmod 0660 /sys/bus/platform/drivers/gyroscope/gyro_range
+    chmod 0660 /sys/bus/platform/drivers/gyroscope/rawdata
+    chmod 0660 /sys/bus/platform/drivers/gyroscope/selftest
+    chmod 0660 /sys/bus/platform/drivers/gyroscope/sensordata
+    chmod 0660 /sys/bus/platform/drivers/gyroscope/status
+    chmod 0660 /sys/bus/platform/drivers/gyroscope/trace
+
+    # msensor (yas537) — nodes for msensord daemon
+    chown system system /sys/bus/platform/drivers/msensor/daemon
+    chown system system /sys/bus/platform/drivers/msensor/op_mode
+    chown system system /sys/bus/platform/drivers/msensor/rawdata
+    chmod 0660 /sys/bus/platform/drivers/msensor/daemon
+    chmod 0660 /sys/bus/platform/drivers/msensor/op_mode
+    chmod 0660 /sys/bus/platform/drivers/msensor/rawdata
+
+    # sensor input event nodes
+    chmod 0660 /dev/input/event4
+    chmod 0660 /dev/input/event6
+    chmod 0660 /dev/input/event7
+    chmod 0660 /dev/input/event8
+    chmod 0660 /dev/input/event9
+    chmod 0660 /dev/input/event10
+    chmod 0660 /dev/input/event11
+    chown system system /dev/input/event4
+    chown system system /dev/input/event6
+    chown system system /dev/input/event7
+    chown system system /dev/input/event8
+    chown system system /dev/input/event9
+    chown system system /dev/input/event10
+    chown system system /dev/input/event11
+
+    # sensor calibration profile dir (HAL reads/writes here)
+    mkdir /data/misc/sensor 0770 system system
