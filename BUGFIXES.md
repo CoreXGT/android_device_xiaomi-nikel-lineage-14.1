@@ -270,21 +270,25 @@ Bug diagnostics use these code paths repeatedly:
      (`cust_getFlashMaxIDutyiiiPiS_` missing) — do not repeat.
   6. Disabling the `media.codec` HAL service (`stop mediacodec`) breaks
      decoding for all apps — reverted.
-- **Leads for the next attempt**:
-  1. Make the `media.codec` HAL actually enumerate the MTK core — compare
-     `ltrace`-style: in mediaserver the same 32-bit libs instantiate fine
-     (`makeComponentInstance(OMX.MTK.VIDEO.ENCODER.AVC)` succeeds at startup),
-     while in the HAL `libMtkOmxCore.so` returns InvalidComponentName. The
-     difference must be found (process name? property? the core's init reads
-     something per-process?).
-  2. Alternative: run a 32-bit `mediacodec` HAL with the MTK component libs
-     present and correctly registered (they are, in /system/lib).
-  3. Alternative: patch the framework to host OMX components inside
-     mediaserver again (M-gen behaviour) instead of the media.codec HAL.
-  4. Verify with the dex codec-list tool:
-     `CLASSPATH=/data/local/tmp/test2.dex app_process /system/bin Test2`
-     (see below) — success = `OMX.MTK.VIDEO.ENCODER.AVC` appears as ENC.
-- **Tool**: a codec-list checker built from `Test2.java` (Java 7 + dx) run
+  4. **Final verdict**: the MTK OMX core (`libMtkOmxCore.so`, SamarV-era thin
+     core) exports `gCoreComponents`/`gCoreComponentCounts` but its component
+     registry is **never populated in ANY process** —
+     `Mtk_OMX_GetHandle("OMX.MTK.VIDEO.ENCODER.AVC")` returns
+     `InvalidComponentName (0x80001002)` in mediaserver, the HAL, everywhere
+     (verified: the E-line exists even in the "successful" startup logs we
+     first misread). The component names live in
+     `libMtkOmxVenc.so`/`libMtkOmxVdecEx.so` and must be registered into the
+     core at its init via the vcodec family; that registration never fires
+     on this N-gen media stack with M-gen-era blobs.
+  5. **The realistic fix: a complete N-gen (Android 7) MTK media stack** from
+     a working MT6797/MT67xx Nougat build — the full set
+     `libMtkOmxCore.so + libMtkOmxVenc.so + libMtkOmxVdecEx.so +
+     libvcodec_{utility,drv,oal}.so + libcam*` all from the SAME N-gen
+     vendor generation, replacing every related blob at once. Mixing M-gen
+     blobs (SamarV, MIUI 6/8) into the N-gen framework cannot work here.
+     An M-gen (Android 6) ROM remains the practical option for full camera
+     function.
+- **Tool**: a codec-list checker built from `Test3.java` (Java 7 + dx) run
   via `app_process`; source is 12 lines — rebuild as needed.
 
 ### 10b. Fingerprint scanner
