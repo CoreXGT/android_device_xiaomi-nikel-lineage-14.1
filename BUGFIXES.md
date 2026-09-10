@@ -291,6 +291,24 @@ Bug diagnostics use these code paths repeatedly:
 - **Conclusion**: needs kernel source (the camera_hw driver power path +
   the mt6351 voltage tables). MIUI M-gen works because its HAL drives the
   power differently (likely via the cam_ldo pinctrl GPIO path).
+- **UPDATE — power path SOLVED via kernel binary patch (2026-09-10 late)**:
+  The N-gen Apollo Lite kernel source
+  (`github.com/MediatekAndroidDevelopers/android_kernel_vernee_apollo_lite`,
+  branch n-7.1.2) contains the official workaround in
+  `drivers/misc/mediatek/imgsensor/src/mt6797/camera_hw/kd_camera_hw.c`:
+  the SUB DVDD converts Vol_1200 → Vol_1220 before regulator_set_voltage
+  ("vcamd: unsupportable voltage range"). Our bd13 kernel binary predates
+  this fix. Binary-patched the kernel image (boot kernel section,
+  decompressed): the sub-sensor power tables at 10 offsets (0x115a808...,
+  pattern `[4, 2800000, 0, 5, 1200000, 0, 7, ...]`) changed 1200000 →
+  1220000. Result: **`powerId:1220000`, "Fail to enable digital power" = 0**
+  — the front sensor now receives power. Remaining blocker: the front chip
+  (ID 0x5e20) does not ACK on i2c-3 @ 0x36 (it previously ACKed during the
+  MAIN-slot search — I2C mux / socket wiring mystery, next kernel-source
+  task: kd_MultiSensorOpen bus switching). Patched boot:
+  `/data/local/tmp/boot_frontcam.img` (binary-patched kernel + DTB
+  vcamd-sub→ldo_vcamd). Boot backup: `/data/local/tmp/boot_bd13_backup.img`.
+  Kernel source obtained: `kernel_apollo_n/` (n-7.1.2 branch, Helio X20).
 
 ### 10b. Fingerprint scanner
 
