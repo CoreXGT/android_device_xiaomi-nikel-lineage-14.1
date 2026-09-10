@@ -15,6 +15,28 @@ Bug diagnostics use these code paths repeatedly:
 
 ## FIXED
 
+### 0. Camera (rear, 13 MP) — HAL failed to load
+
+- **Symptom**: every camera app fails; `CameraService: camera hardware module
+  doesn't exist`; the real error only appears when mediaserver restarts:
+  `dlopen failed: cannot locate symbol "__pthread_gettid" referenced by
+  /system/lib/libmtkjpeg.so` → `Could not load camera HAL module: -22`.
+- **Root cause**: `libmtkjpeg.so` is an M-era blob referencing
+  `__pthread_gettid`, a private bionic symbol **removed in Android N**.
+  The 32-bit camera HAL chain cannot dlopen, so the whole camera subsystem
+  never registers.
+- **Fix**: binary-patch the blob's dynamic string table —
+  `__pthread_gettid` → `gettid` (present in N bionic, same version node
+  `LIBC`; call sites always pass the current pthread, so semantics match).
+  The patched blob is committed in `vendor/xiaomi/nikel/system/lib/libmtkjpeg.so`
+  (vendor commit `f91cbe3`). The 64-bit copy does not reference the symbol.
+- **Verify**:
+  ```
+  kill $(pidof mediaserver); sleep 5
+  logcat | grep -E 'CameraService|dlopen'
+  dumpsys media.camera | grep -E 'Number of camera|module API'
+  ```
+
 ### 1. SD card never mounted
 
 - **Symptom**: kernel detects the card (`mmc1:aaaa` in `/sys/bus/mmc/devices`,
@@ -176,13 +198,39 @@ Bug diagnostics use these code paths repeatedly:
 - **Workaround**: VoIP (WhatsApp/Telegram). Alternatively use an Android 6.0
   ROM for calls.
 
-### 9. Camera HAL returns -22
+### 9. Camera front (5 MP) — sensor not enumerated
 
-- **Symptom**: camera apps fail; HAL init returns -22.
-- **Leads**: needs a camera HAL that matches the bd13 kernel + blob set;
-  SamarV tree README lists the same issue. Adding compatible
-  `libcam*` blobs (e.g. from fix-v7 era MIUI/V10 mixes) is the first thing to
-  try, but an actual root cause has not been established yet.
+- **Symptom**: after fix #0 the rear camera (camera 0, BACK) works, but
+  `Number of camera devices: 1` — the front sensor is never enumerated, so
+  no app offers the front camera. Same on the bd04 and bd13 kernels.
+- **Diagnosis trail** (do not repeat):
+  - Kernel registers only `CAM[1]: s5k3l8mipirawnew` in `/proc/driver/camera_info`
+    at boot — the sub-slot probe fails at boot on both kernels.
+  - Runtime enumeration (`ImgSensorDrv impSearchSensor`, restart mediaserver
+    to capture it): MAIN slot drivers 0/1 → `Err-ctrlCode (I/O error)`,
+    driver 2 → chip responds with ID `0x5e20`; **SUB slot drivers 20000+ →
+    all `Err-ctrlCode (I/O error)`**, `getSocketPosition:[2][-1]`.
+  - Both kernels compile the same sensor driver set: `s5k3l8` variants (rear)
+    + `s5k5e8yx` b6/sunny/qteck variants (front, 5 MP) + `s5k4h8`, `imx258`,
+    `ov13853`, `s5k2x8` (other variants).
+  - Replacing `libcameracustom.so` with the MIUI 9 (arΩma) build (20.9 MB vs
+    our 10.6 MB) crashes mediaserver: `libcam.hal3a.v3.so` needs
+    `cust_getFlashMaxIDutyiiiPiS_` which the MIUI lib does not export —
+    M/N stack mixing (see lesson 1). Reverted.
+- **Leads for the next attempt**:
+  1. Confirm the front camera ever worked on this unit (stock MIUI / arΩma)
+     to rule out hardware damage.
+  2. The `I/O error` for every SUB driver suggests the sensor never answers —
+     check the sub-camera power rails (VCAM) and the MCLK for sensor dev 2
+     (`/proc/driver/camsensor2`, kernel `camera_hw` driver state during probe).
+  3. If a front-camera-capable kernel is found (a kernel whose
+     `/proc/driver/camera_info` shows a `CAM[2]` entry), test whether its
+     sensor driver set still matches the HAL: the HAL's own driver table
+     (printed as `SENSOR_DRVNAME_S5K5E2YA_MIPI_RAW`) must line up with the
+     kernel driver indices — an index mismatch makes the MAIN search latch
+     onto the wrong chip (we saw `0x5e20` on the main slot).
+  4. A kernel source rebuild (sensor driver enable + hwmsen fix) would solve
+     both this and keep the bd13 sensor fixes.
 
 ### 10. Fingerprint scanner
 

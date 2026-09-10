@@ -58,7 +58,7 @@ make otapackage -j4
   `export CCACHE_DIR=<path>`.
 - **Host toolchain**: `check_radio_versions.py` is Python 2 and flex-2.5.39
   breaks on glibc ≥ 2.27 — use
-  `export PATH=<python2>/bin:$PATH LC_ALL=C`.
+  `export PATH=<python2>/bin:$PATH LC_ALL=C`. **note**: My latest build using Ubuntu 18 LTS, so I haven’t had this problem
 
 ## Feature Status
 
@@ -71,7 +71,8 @@ make otapackage -j4
 | Hotspot 2.4 GHz | ✅ Fixed | netd patches, BUGFIXES.md #4 |
 | Hotspot 5 GHz | ✅ Fixed | framework + netd patches, BUGFIXES.md #5 |
 | ADB on boot | ✅ Fixed | BUGFIXES.md #7 |
-| Camera | ❌ Broken | camera HAL -22, BUGFIXES.md #8 |
+| Camera (rear) | ✅ Fixed | libmtkjpeg bionic symbol patch, BUGFIXES.md #0 |
+| Camera (front) | ❌ Broken | sensor not enumerated, BUGFIXES.md #9 |
 | Voice calls | ❌ Broken | MD3 speech crash, known issue, BUGFIXES.md #9 |
 | Fingerprint scanner | ❌ Not tested/known issue | |
 | FM radio | Not verified | |
@@ -80,7 +81,7 @@ make otapackage -j4
 
 1. **Voice calls crash the C2K modem (MD3)** — not fixable from /system; every
    N-gen (7.x) build has this. Use VoIP apps for calls.
-2. **Camera HAL returns -22** — needs a compatible camera HAL / rebuild.
+2. **Front camera not enumerated** — rear camera fixed (see #0); the front sensor probe fails kernel-side, see #9.
 3. **Fingerprint scanner** — untested on this tree.
 
 ## Credits
