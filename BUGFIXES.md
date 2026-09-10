@@ -218,19 +218,30 @@ Bug diagnostics use these code paths repeatedly:
     `cust_getFlashMaxIDutyiiiPiS_` which the MIUI lib does not export —
     M/N stack mixing (see lesson 1). Reverted.
 - **Leads for the next attempt**:
-  1. Confirm the front camera ever worked on this unit (stock MIUI / arΩma)
-     to rule out hardware damage.
-  2. The `I/O error` for every SUB driver suggests the sensor never answers —
-     check the sub-camera power rails (VCAM) and the MCLK for sensor dev 2
-     (`/proc/driver/camsensor2`, kernel `camera_hw` driver state during probe).
-  3. If a front-camera-capable kernel is found (a kernel whose
-     `/proc/driver/camera_info` shows a `CAM[2]` entry), test whether its
-     sensor driver set still matches the HAL: the HAL's own driver table
-     (printed as `SENSOR_DRVNAME_S5K5E2YA_MIPI_RAW`) must line up with the
-     kernel driver indices — an index mismatch makes the MAIN search latch
-     onto the wrong chip (we saw `0x5e20` on the main slot).
+  1. **The core loads in the HAL but its component registry stays empty.**
+     Both processes are 32-bit and load `libMtkOmxCore.so`; the mediaserver
+     additionally has `libMtkOmxVenc.so` / `libMtkOmxVdecEx.so` /
+     `libvcodec_utility.so` / `libvcodecdrv.so` / `libvcodec_oal.so` mapped —
+     the HAL does NOT (verified via /proc/<pid>/maps). The MTK core registers
+     its components by dlopening those libs at core-init; that dlopen fails
+     or is skipped inside the HAL. Find the init path difference
+     (`MtkOmxCoreInit` reads something per-process or dlopens the component
+     libs which fail on missing deps in the HAL's linker namespace).
+  2. Compare environments: `cat /proc/<pid>/maps` for mediaserver vs
+     media.codec, diff the loaded lib sets, and check what the core opens at
+     init (`/dev/Vcodec`, NVRAM files) — run the HAL as root (temporarily
+     `user root` in /system/etc/init/mediacodec.rc) to rule out uid issues
+     (already tested: root alone does not fix it).
+  3. Alternative: make the framework host OMX in mediaserver again
+     (M-gen behaviour) — `OMXClient::connect()` has the path
+     (`media.stagefright.codecremote=0` moves component INSTANCES to
+     mediaserver and works — verified live — but the CODEC LIST used for
+     selection still comes from the media.codec HAL, so the HW encoder is
+     still never selected).
   4. A kernel source rebuild (sensor driver enable + hwmsen fix) would solve
-     both this and keep the bd13 sensor fixes.
+     the front camera and possibly the media stack cleanly.
+- **Tool**: a codec-list checker built from `Test3.java` (Java 7 + dx) run
+  via `app_process`; source is 12 lines — rebuild as needed.
 
 ### 10. Video recording — encoder never instantiated (front camera issue too)
 
