@@ -232,7 +232,51 @@ Bug diagnostics use these code paths repeatedly:
   4. A kernel source rebuild (sensor driver enable + hwmsen fix) would solve
      both this and keep the bd13 sensor fixes.
 
-### 10. Fingerprint scanner
+### 10. Video recording — encoder never instantiated (front camera issue too)
+
+- **Symptom** (after fix #0): photo capture works, video recording fails
+  immediately ("failed to record video"). All resolutions fail.
+- **Root cause chain** (confirmed step by step):
+  1. `MediaRecorder` picks the FIRST `video/avc` encoder from the
+     MediaCodecList. The MTK HW encoder (`OMX.MTK.VIDEO.ENCODER.AVC`,
+     registered in `configs/media_codecs.xml`) is **missing from the runtime
+     list**, so MediaCodec falls back to the software encoder
+     (`OMX.google.h264.encoder`).
+  2. The SW encoder dies in EXECUTING state (`OMX_ErrorUndefined
+     0x80001001`) because the MTK camera HAL feeds it vendor gralloc buffers
+     it cannot map.
+  3. `media_codecs.xml` has a stray `.` after `/>` in the H263 entry which
+     aborted the XML parse before the MTK encoder entries — fixed in
+     `configs/media_codecs.xml`, **but that alone is not enough** (see below).
+  4. The runtime codec list comes from the `media.codec` HAL service, whose
+     `libMtkOmxCore.so` returns `InvalidComponentName (0x80001002)` for every
+     MTK component. The 64-bit ROM runs 32-bit media processes, and the
+     **64-bit MTK component libs are absent** (`libMtkOmxVenc.so`,
+     `libMtkOmxVdecEx.so`, `libvcodec_oal.so` exist only in /system/lib);
+     MIUI M-gen also lacks 64-bit versions (its mediaserver is 32-bit and
+     hosts OMX in-process).
+  5. Swapping `libcameracustom.so` with the MIUI build crashes mediaserver
+     (`cust_getFlashMaxIDutyiiiPiS_` missing) — do not repeat.
+  6. Disabling the `media.codec` HAL service (`stop mediacodec`) breaks
+     decoding for all apps — reverted.
+- **Leads for the next attempt**:
+  1. Make the `media.codec` HAL actually enumerate the MTK core — compare
+     `ltrace`-style: in mediaserver the same 32-bit libs instantiate fine
+     (`makeComponentInstance(OMX.MTK.VIDEO.ENCODER.AVC)` succeeds at startup),
+     while in the HAL `libMtkOmxCore.so` returns InvalidComponentName. The
+     difference must be found (process name? property? the core's init reads
+     something per-process?).
+  2. Alternative: run a 32-bit `mediacodec` HAL with the MTK component libs
+     present and correctly registered (they are, in /system/lib).
+  3. Alternative: patch the framework to host OMX components inside
+     mediaserver again (M-gen behaviour) instead of the media.codec HAL.
+  4. Verify with the dex codec-list tool:
+     `CLASSPATH=/data/local/tmp/test2.dex app_process /system/bin Test2`
+     (see below) — success = `OMX.MTK.VIDEO.ENCODER.AVC` appears as ENC.
+- **Tool**: a codec-list checker built from `Test2.java` (Java 7 + dx) run
+  via `app_process`; source is 12 lines — rebuild as needed.
+
+### 10b. Fingerprint scanner
 
 - Driver node exists (`fpc_irq` input, `/dev/fpsensor`) but HAL/service
   integration has not been built or tested on this tree.
