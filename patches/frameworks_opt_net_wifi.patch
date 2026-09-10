@@ -1,0 +1,89 @@
+From 852164feaf6eb0820679ab8b8df31d8580eec349 Mon Sep 17 00:00:00 2001
+From: CoreXGT <aulia.ikbal09@gmail.com>
+Date: Thu, 10 Sep 2026 01:56:25 +0700
+Subject: [PATCH] wifi: allow 5GHz soft AP without wificond country-code
+ support
+
+ SoftApManager aborted 5GHz AP start because WifiNative.setCountryCodeHal
+ always fails on MTK (no wificond daemon in cm-14.1). Also
+ ApConfigUtil.updateApChannelConfig forced the band back to 2GHz when the
+ HAL provides no 5GHz channel list. Fall back to fixed non-DFS channel 36
+ and proceed without HAL country code (set via supplicant instead).
+
+Change-Id: I8e3647e994ee8ba23a20a5a2d2dc2db6f87bc3fb
+---
+ .../com/android/server/wifi/SoftApManager.java  | 13 ++++++-------
+ .../android/server/wifi/util/ApConfigUtil.java  | 17 +++++++++++++++--
+ 2 files changed, 21 insertions(+), 9 deletions(-)
+
+diff --git a/service/java/com/android/server/wifi/SoftApManager.java b/service/java/com/android/server/wifi/SoftApManager.java
+index 98dad2be..bbb5de6b 100644
+--- a/service/java/com/android/server/wifi/SoftApManager.java
++++ b/service/java/com/android/server/wifi/SoftApManager.java
+@@ -154,15 +154,14 @@ public class SoftApManager {
+ 
+         /* Setup country code if it is provide. */
+         if (mCountryCode != null && (mCountryCode.length() != 0)) {
+-            /**
+-             * Country code is mandatory for 5GHz band, return an error if failed to set
+-             * country code when AP is configured for 5GHz band.
+-             */
++            /* nikel: WifiNative.setCountryCodeHal always fails (no wificond
++               daemon in cm-14.1 / MTK wifi HAL has no country code support).
++               Do NOT block 5GHz soft AP on it — country code is set through
++               supplicant instead. */
+             if (!mWifiNative.setCountryCodeHal(mCountryCode.toUpperCase(Locale.ROOT))
+                     && config.apBand == WifiConfiguration.AP_BAND_5GHZ) {
+-                Log.e(TAG, "Failed to set country code, required for setting up "
+-                        + "soft ap in 5GHz");
+-                return ERROR_GENERIC;
++                Log.w(TAG, "Failed to set country code via HAL, proceeding anyway "
++                        + "for 5GHz soft ap");
+             }
+         }
+ 
+diff --git a/service/java/com/android/server/wifi/util/ApConfigUtil.java b/service/java/com/android/server/wifi/util/ApConfigUtil.java
+index 7bbbc036..1852f598 100644
+--- a/service/java/com/android/server/wifi/util/ApConfigUtil.java
++++ b/service/java/com/android/server/wifi/util/ApConfigUtil.java
+@@ -33,6 +33,9 @@ public class ApConfigUtil {
+ 
+     public static final int DEFAULT_AP_BAND = WifiConfiguration.AP_BAND_2GHZ;
+     public static final int DEFAULT_AP_CHANNEL = 6;
++    /* nikel: MTK wifi HAL exposes no 5GHz channel list (no wificond) —
++       fall back to a fixed non-DFS channel so 5GHz soft AP can start */
++    public static final int DEFAULT_AP_CHANNEL_5G = 36;
+ 
+     /* Return code for updateConfiguration. */
+     public static final int SUCCESS = 0;
+@@ -115,6 +118,11 @@ public class ApConfigUtil {
+                                             WifiConfiguration config) {
+         /* Use default band and channel for device without HAL. */
+         if (!wifiNative.isHalStarted()) {
++            if (config.apBand == WifiConfiguration.AP_BAND_5GHZ) {
++                /* nikel: keep user's 5GHz choice, use fixed channel */
++                config.apChannel = DEFAULT_AP_CHANNEL_5G;
++                return SUCCESS;
++            }
+             config.apBand = DEFAULT_AP_BAND;
+             config.apChannel = DEFAULT_AP_CHANNEL;
+             return SUCCESS;
+@@ -140,8 +148,13 @@ public class ApConfigUtil {
+                 }
+ 
+                 /* Use the default for HAL without get channel support. */
+-                config.apBand = DEFAULT_AP_BAND;
+-                config.apChannel = DEFAULT_AP_CHANNEL;
++                if (config.apBand == WifiConfiguration.AP_BAND_5GHZ) {
++                    /* nikel: no channel list from HAL — use fixed 5GHz channel */
++                    config.apChannel = DEFAULT_AP_CHANNEL_5G;
++                } else {
++                    config.apBand = DEFAULT_AP_BAND;
++                    config.apChannel = DEFAULT_AP_CHANNEL;
++                }
+             }
+         }
+ 
+-- 
+2.53.0
+

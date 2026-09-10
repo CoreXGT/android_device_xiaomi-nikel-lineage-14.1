@@ -1,30 +1,28 @@
-From c106a486fd11ee8a84c53d1239f01ec860d22f5a Mon Sep 17 00:00:00 2001
-From: Dmitry Smirnov <divis1969@gmail.com>
-Date: Sat, 12 Mar 2016 19:42:46 +0300
-Subject: [PATCH] Enable Tethering
+From c1e5b75f3d1b79f4caad046ed1d432757a5e1f23 Mon Sep 17 00:00:00 2001
+From: CoreXGT <aulia.ikbal09@gmail.com>
+Date: Thu, 10 Sep 2026 01:49:18 +0700
+Subject: [PATCH 1/2] netd: softap ctrl unix file wlan0 -> ap0 (complete
+ rejected hunk)
 
-Cherry-picked https://github.com/visi0nary/android_device_elephone_p8000/blob/cm-12.1/patches/system_netd/0001-hotpost-fix.patch
-
-Change-Id: I0fda94f5567a220db961526eb7c2ee96ce60d10c
-(cherry picked from commit 5cb001a0122ad5318da21dfcd3ab98624f90efb1)
+Change-Id: I7691210987f3e5c5274c390304dcdc35f81cd4ea
 ---
  server/SoftapController.cpp | 4 ++--
  1 file changed, 2 insertions(+), 2 deletions(-)
 
 diff --git a/server/SoftapController.cpp b/server/SoftapController.cpp
-index 27ed684..3699c87 100755
+index 4a7c8d7..8461e43 100755
 --- a/server/SoftapController.cpp
 +++ b/server/SoftapController.cpp
-@@ -54,7 +54,7 @@ using android::base::WriteStringToFile;
+@@ -53,7 +53,7 @@ using android::base::WriteStringToFile;
+ #include "wpa_ctrl.h"
  #endif
  
+-std:: string hostapd_unix_file(StringPrintf("/data/misc/wifi/hostapd/wlan0"));
++std:: string hostapd_unix_file(StringPrintf("/data/misc/wifi/hostapd/ap0"));
  #ifdef LIBWPA_CLIENT_EXISTS
--static const char HOSTAPD_UNIX_FILE[]    = "/data/misc/wifi/hostapd/wlan0";
-+static const char HOSTAPD_UNIX_FILE[]    = "/data/misc/wifi/hostapd/ap0";
  static const char HOSTAPD_DHCP_DIR[]    = "/data/misc/dhcp";
  #endif
- static const char HOSTAPD_CONF_FILE[]    = "/data/misc/wifi/hostapd.conf";
-@@ -282,7 +282,7 @@ int SoftapController::setSoftap(int argc, char *argv[]) {
+@@ -289,7 +289,7 @@ int SoftapController::setSoftap(int argc, char *argv[]) {
              "hw_mode=%c\n"
              "ignore_broadcast_ssid=%d\n"
              "wowlan_triggers=any\n",
@@ -34,5 +32,55 @@ index 27ed684..3699c87 100755
      std::string fbuf;
      if (argc > 7) {
 -- 
-2.11.0
+2.53.0
+
+
+From ad39e145285cb14336d3bd62e6b27e6d9b91fb9f Mon Sep 17 00:00:00 2001
+From: CoreXGT <aulia.ikbal09@gmail.com>
+Date: Thu, 10 Sep 2026 04:32:25 +0700
+Subject: [PATCH 2/2] netd: make ipv6 rpfilter tether rule non-fatal for
+ hotspot
+
+ MTK 3.18 kernel lacks xt_rpfilter, so 'ip6tables -t raw -m rpfilter'
+ fails on nikel. NatController aborted the whole nat enable, and the
+ framework reacted by tearing down the soft AP (hotspot dies ~1s after
+ AP-ENABLED with 'Nat operation failed (No such device)' in the log).
+ Skip the rule instead of failing the nat.
+
+Change-Id: I2d3378f31b1837a967d63578e2c915c91fe75bbb
+---
+ server/NatController.cpp | 11 ++++++-----
+ 1 file changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/server/NatController.cpp b/server/NatController.cpp
+index cda8f5f..41ed377 100644
+--- a/server/NatController.cpp
++++ b/server/NatController.cpp
+@@ -377,8 +377,12 @@ int NatController::setForwardRules(bool add, const char *intIface, const char *e
+     }
+ 
+     if (runCmd(ARRAY_SIZE(cmd4), cmd4) && add) {
+-        rc = -1;
+-        goto err_rpfilter;
++        /* nikel: MTK 3.18 kernel has no xt_rpfilter module — the IPv6
++           anti-spoof rule cannot be installed. Aborting here makes the
++           whole nat enable fail, and the framework then tears down the
++           hotspot ("Nat operation failed (No such device)"). Just skip
++           the rule and continue. */
++        ALOGE("ip6tables rpfilter rule unsupported by kernel, skipping");
+     }
+ 
+     if (setTetherCountingRules(add, intIface, extIface) && add) {
+@@ -388,9 +392,6 @@ int NatController::setForwardRules(bool add, const char *intIface, const char *e
+ 
+     return 0;
+ 
+-err_rpfilter:
+-    cmd3[2] = "-D";
+-    runCmd(ARRAY_SIZE(cmd3), cmd3);
+ err_return:
+     cmd2[2] = "-D";
+     runCmd(ARRAY_SIZE(cmd2), cmd2);
+-- 
+2.53.0
 

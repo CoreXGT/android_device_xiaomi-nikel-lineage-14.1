@@ -20,6 +20,9 @@ cd ../..
 cd system/netd
 patch -p1 < ../../device/xiaomi/nikel/patches/system_netd.patch
 cd ../..
+cd frameworks/opt/net/wifi
+patch -p1 < ../../device/xiaomi/nikel/patches/frameworks_opt_net_wifi.patch
+cd ../..
 echo Patches have been applied successfully!
 
 

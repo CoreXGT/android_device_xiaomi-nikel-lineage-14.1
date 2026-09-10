@@ -1,48 +1,94 @@
-# Device Tree for Xiaomi Redmi Note 4 (Nikel)
+# Device Tree — Xiaomi Redmi Note 4 (MediaTek) "nikel" — LineageOS 14.1
 
-# Spec Sheet
+Fork of bju2000's device tree, maintained by CoreXGT.
+**Bug tracker and detailed fix documentation: see [BUGFIXES.md](BUGFIXES.md).**
+
+## Spec Sheet
 
 | Feature                 | Specification                     |
 | :---------------------- | :-------------------------------- |
-| CPU                     | Deca-core 2.1 GHz                 |
-| Chipset                 | Mediatek MT6797 Helio X20         |
+| Codename                | nikel                             |
+| Chipset                 | Mediatek MT6797 (Helio X20/X25)   |
+| CPU                     | Deca-core 2.1 GHz (A72 x2 + A53)  |
 | GPU                     | Mali-T880 MP4                     |
 | Memory                  | 2/3/4 GB                          |
-| Shipped Android Version | 6.0.1                             |
-| Storage                 | 32/64 GB                          |
+| Shipped Android Version | 6.0.1 (MIUI M-gen)                |
+| Storage                 | 32/64 GB eMMC                     |
 | MicroSD                 | Up to 256 GB                      |
 | Battery                 | 4100 mAh (non-removable)          |
 | Dimensions              | 151 x 76 x 8.5 mm                 |
-| Display                 | 1920x1080 pixels, 5.5 (~401 PPI)  |
+| Display                 | 5.5" 1920x1080 IPS (~401 PPI)     |
 | Rear Camera             | 13 MP, LED flash                  |
 | Front Camera            | 5 MP                              |
+| Sensors                 | BMI160 (accel+gyro), YAS537 (mag), LTR579 (light/prox), Bosch |
+| WiFi                    | MT6632 802.11 a/b/g/n/ac, 2.4+5GHz |
+| Bluetooth               | 4.2                               |
 | Release Date            | January 2017                      |
 
+## Build Instructions
 
-   # Build
-   * repo init -u git://github.com/LineageOS/android.git -b cm-14.1
-   * repo sync
-   * git clone https://github.com/jorgeiba97/android_device_xiaomi-nikel-lineage-14.1.git -b master device/xiaomi/nikel
-   * git clone https://github.com/jorgeiba97/android_vendor_xiaomi-nikel-lineage-14.1.git -b cm-14.1 vendor/xiaomi/nikel
-   * cd device/xiaomi/nikel/patches
-   * . apply.sh
-   * source build/envsetup.sh
-   * breakfast nikel
-   * brunch nikel
-   * Done :)
-   
-   # Known Issue:-
-   * Rotation Sensor
-   * RIL is very unustable
-   * FP Scanner
-   * Camera
-   
-   # Credits:-
-   * AdrianoMartins
-   * divis1969
-   * xen0n
-   * samarV-121
-   * DiedMaster
-   * end222
-   * & Me :)
+```bash
+# Get the LineageOS 14.1 source
+repo init -u git://github.com/LineageOS/android.git -b cm-14.1
+repo sync
 
+# Device tree and vendor blobs
+git clone https://github.com/CoreXGT/android_device_xiaomi-nikel-lineage-14.1.git -b master device/xiaomi/nikel
+git clone https://github.com/CoreXGT/android_vendor_xiaomi_nikel.git -b master vendor/xiaomi/nikel
+
+# Apply out-of-tree patches (netd, frameworks/opt/net/wifi, etc.)
+cd device/xiaomi/nikel/patches && . apply.sh && cd -
+
+# Build
+source build/envsetup.sh
+breakfast nikel
+make otapackage -j4
+```
+
+### Build notes
+
+- **RAM**: 8 GB is enough with `-j4`; `mka`/`brunch` force `-j$(nproc)` which
+  OOMs on 8 GB machines — prefer `make otapackage -j4`.
+- **Jack**: on newer JDKs the Jack server needs TLSv1/1.1 re-enabled in
+  `java.security` and a manual start:
+  `jack-admin start-server -Djack.home=$HOME/.jack-server -Xmx6g -cp ...`
+  (do NOT set `ANDROID_COMPILE_WITH_JACK=false` — it breaks the build).
+- **TMPDIR**: some build steps need >2 GB in /tmp — set `export TMPDIR=<big dir>`.
+- **ccache**: enabled by default in cm-14.1; point it somewhere persistent with
+  `export CCACHE_DIR=<path>`.
+- **Host toolchain**: `check_radio_versions.py` is Python 2 and flex-2.5.39
+  breaks on glibc ≥ 2.27 — use
+  `export PATH=<python2>/bin:$PATH LC_ALL=C`.
+
+## Feature Status
+
+| Feature | Status | Notes |
+| :--- | :--- | :--- |
+| Boot / WiFi / Bluetooth | ✅ Working | |
+| Mobile data (LTE) | ✅ Fixed | MediaTekRIL class, see BUGFIXES.md #2 |
+| SD card | ✅ Fixed | fstab case mismatch, BUGFIXES.md #1 |
+| Sensors (accel/gyro/mag/rotation) | ✅ Fixed | needs MIUI bd13 kernel + rc, BUGFIXES.md #3 |
+| Hotspot 2.4 GHz | ✅ Fixed | netd patches, BUGFIXES.md #4 |
+| Hotspot 5 GHz | ✅ Fixed | framework + netd patches, BUGFIXES.md #5 |
+| ADB on boot | ✅ Fixed | BUGFIXES.md #7 |
+| Camera | ❌ Broken | camera HAL -22, BUGFIXES.md #8 |
+| Voice calls | ❌ Broken | MD3 speech crash, known issue, BUGFIXES.md #9 |
+| Fingerprint scanner | ❌ Not tested/known issue | |
+| FM radio | Not verified | |
+
+## Known Issues (details in BUGFIXES.md)
+
+1. **Voice calls crash the C2K modem (MD3)** — not fixable from /system; every
+   N-gen (7.x) build has this. Use VoIP apps for calls.
+2. **Camera HAL returns -22** — needs a compatible camera HAL / rebuild.
+3. **Fingerprint scanner** — untested on this tree.
+
+## Credits
+
+* bju2000 — original device tree
+* SamarV-121 — device tree, vendor blobs, kernel prebuilt
+* AdrianoMartins — libgralloc_extra blobs
+* divis1969 — netd hotspot patch
+* xen0n, DiedMaster, end222 — patches
+* end222 (omega device tree) — GraphicBuffer ABI shim
+* CoreXGT — fixes and maintenance
