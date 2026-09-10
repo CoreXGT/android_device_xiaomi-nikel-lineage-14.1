@@ -243,53 +243,54 @@ Bug diagnostics use these code paths repeatedly:
 - **Tool**: a codec-list checker built from `Test3.java` (Java 7 + dx) run
   via `app_process`; source is 12 lines — rebuild as needed.
 
-### 10. Video recording — encoder never instantiated (front camera issue too)
+### 10. Video recording — FIXED (2026-09-10)
 
-- **Symptom** (after fix #0): photo capture works, video recording fails
-  immediately ("failed to record video"). All resolutions fail.
-- **Root cause chain** (confirmed step by step):
-  1. `MediaRecorder` picks the FIRST `video/avc` encoder from the
-     MediaCodecList. The MTK HW encoder (`OMX.MTK.VIDEO.ENCODER.AVC`,
-     registered in `configs/media_codecs.xml`) is **missing from the runtime
-     list**, so MediaCodec falls back to the software encoder
-     (`OMX.google.h264.encoder`).
-  2. The SW encoder dies in EXECUTING state (`OMX_ErrorUndefined
-     0x80001001`) because the MTK camera HAL feeds it vendor gralloc buffers
-     it cannot map.
-  3. `media_codecs.xml` has a stray `.` after `/>` in the H263 entry which
-     aborted the XML parse before the MTK encoder entries — fixed in
-     `configs/media_codecs.xml`, **but that alone is not enough** (see below).
-  4. The runtime codec list comes from the `media.codec` HAL service, whose
-     `libMtkOmxCore.so` returns `InvalidComponentName (0x80001002)` for every
-     MTK component. The 64-bit ROM runs 32-bit media processes, and the
-     **64-bit MTK component libs are absent** (`libMtkOmxVenc.so`,
-     `libMtkOmxVdecEx.so`, `libvcodec_oal.so` exist only in /system/lib);
-     MIUI M-gen also lacks 64-bit versions (its mediaserver is 32-bit and
-     hosts OMX in-process).
-  5. Swapping `libcameracustom.so` with the MIUI build crashes mediaserver
-     (`cust_getFlashMaxIDutyiiiPiS_` missing) — do not repeat.
-  6. Disabling the `media.codec` HAL service (`stop mediacodec`) breaks
-     decoding for all apps — reverted.
-  4. **Final verdict**: the MTK OMX core (`libMtkOmxCore.so`, SamarV-era thin
-     core) exports `gCoreComponents`/`gCoreComponentCounts` but its component
-     registry is **never populated in ANY process** —
-     `Mtk_OMX_GetHandle("OMX.MTK.VIDEO.ENCODER.AVC")` returns
-     `InvalidComponentName (0x80001002)` in mediaserver, the HAL, everywhere
-     (verified: the E-line exists even in the "successful" startup logs we
-     first misread). The component names live in
-     `libMtkOmxVenc.so`/`libMtkOmxVdecEx.so` and must be registered into the
-     core at its init via the vcodec family; that registration never fires
-     on this N-gen media stack with M-gen-era blobs.
-  5. **The realistic fix: a complete N-gen (Android 7) MTK media stack** from
-     a working MT6797/MT67xx Nougat build — the full set
-     `libMtkOmxCore.so + libMtkOmxVenc.so + libMtkOmxVdecEx.so +
-     libvcodec_{utility,drv,oal}.so + libcam*` all from the SAME N-gen
-     vendor generation, replacing every related blob at once. Mixing M-gen
-     blobs (SamarV, MIUI 6/8) into the N-gen framework cannot work here.
-     An M-gen (Android 6) ROM remains the practical option for full camera
-     function.
-- **Tool**: a codec-list checker built from `Test3.java` (Java 7 + dx) run
-  via `app_process`; source is 12 lines — rebuild as needed.
+- **Symptom**: photo capture works, video recording fails immediately. All
+  resolutions fail.
+- **Root cause chain** (fully traced):
+  1. The SW h264 encoder dies with vendor gralloc buffers (0x80001001).
+  2. The HW encoder (`OMX.MTK.VIDEO.ENCODER.AVC`) is never registered:
+     `Mtk_OMX_Init` fails with **`ParseMtkCoreConfig failed. Can't open
+     /vendor/etc/mtk_omx_core.cfg`** — the MTK OMX core reads its component
+     table from this config file, missing from the ROM, so every MTK OMX
+     component returned `InvalidComponentName`.
+  3. `media_codecs.xml` also had a stray `.` after `/>` aborting the parse
+     before the MTK encoder entries.
+- **Fix** (vendor commit `dc13e71`): replace the M-gen OMX stack with the
+  **N-gen set from Vernee Apollo Lite madOS 7.1.2** (same Helio X20 SoC) —
+  `libMtkOmxCore/Venc/VdecEx`, `libvcodec_{utility,drv,oal}`,
+  `libstagefrighthw` (32+64 bit) + **`system/vendor/etc/mtk_omx_core.cfg`**.
+  Verified: `OMX.MTK.VIDEO.ENCODER.AVC` enumerated (11 encoders vs 8) and
+  video recording works end-to-end.
+- **Known minor issues after the fix**: occasional stutter on some videos,
+  and `audiofx has stopped` when playing — not yet investigated.
+
+### 9b. Camera front (5 MP) — VCAM_D regulator wiring
+
+- **Symptom**: front camera never enumerates. Kernel probe of every SUB
+  driver fails; the front sensor never gets digital power.
+- **Diagnosis trail** (do not repeat):
+  - `_hwPowerOn powertype:9 powerId:1200000` fails → `Fail to enable digital
+    power` → the sensor stays unpowered → `i2c-3 addr 0x2d ACK error` → no
+    sensor ID → 1 camera device only.
+  - DT (`soc/kd_camera_hw1@1a040000`) wires `vcamd_sub-supply` (and
+    `vcamd_main2-supply`) to phandle 0x2f = **ldo_vgp3** — 1,200,000 µV is
+    NOT a valid step in the kernel's VGP3 voltage table (steps 1.0/1.05/
+    1.1/1.22/1.3/1.5/1.8V — decoded from the kernel binary at 0xbda2f0).
+  - DTB **patched live** (boot.img offset 8330878, FDT): both
+    `vcamd_sub-supply`/`vcamd_main2-supply` → phandle 0x80 = `ldo_vcamd`
+    (range 900000–1210000). The wrong-rail problem is gone but the failure
+    remains — the kernel's `mt6351_VCAMD_voltages` table
+    (900000/950000/1000000/1050000/1200000/1500000/1800000) DOES contain
+    1200000, yet `regulator_set_voltage` still fails inside `_hwPowerOn` —
+    the remaining blocker is inside the kernel's mtk_regulator/mt6351
+    driver or the camera_hw power switch; not resolvable without kernel
+    source.
+  - Patched boot kept flashed (vcamd wiring to ldo_vcamd is more correct
+    than vgp3); boot backup: `/data/local/tmp/boot_bd13_backup.img`.
+- **Conclusion**: needs kernel source (the camera_hw driver power path +
+  the mt6351 voltage tables). MIUI M-gen works because its HAL drives the
+  power differently (likely via the cam_ldo pinctrl GPIO path).
 
 ### 10b. Fingerprint scanner
 
