@@ -385,6 +385,30 @@ Bug diagnostics use these code paths repeatedly:
     is ever resumed.
   * libcameracustom LOS was restored from backup (md5 verified);
     libxlg shim removed.
+- **DECISIVE SESSION 4 (2026-09-11): front camera fully decoded.**
+  * Proven by flashing the OFFICIAL MIUI-M full ROM: front AND rear
+    camera both work (photo+video). Hardware is healthy.
+  * Captured MIUI kernel dmesg while opening the front camera:
+    driver = **s5k5e8yxb6mipirawqteck** (drvIdx 6), power
+    VCAMA 2.8V + VCAM_D **1220000** + VCAM_IO 1.8V, I2C read of the
+    sensor ID happens at slave **0x18** on **i2c-3**, and the OTP read
+    returns real data (awb_flag=0x01). The slave id 0x18 is supplied
+    by the MIUI HAL through SENSOR_FEATURE_SET_SLAVE_I2C_ID; the LOS
+    N-era HAL never sends it, so the driver falls back to its
+    per-socket default (SUB = 0x2d) and the chip stays silent.
+  * Kernel list-swap experiments (bd13 kernel, moving b6/qteck into
+    drvIdx 3) made the correct driver get probed, but the slave id is
+    still 0x2d and several boot attempts also broke the REAR camera
+    (module-EEPROM probes at 0x10/0x18 NACK) for reasons not fully
+    understood — the swap approach is abandoned as unreliable.
+  * Current proven-good state: boot_bd13_backup.img + LOS
+    (rear camera OK, all other fixes intact). Front camera fix
+    requires either (a) LOS HAL to send slave 0x18 for the sub slot
+    (patch libcameracustom / port MIUI sensor config), or (b) a kernel
+    patch forcing the qteck driver's SUB i2c_write_id to 0x18
+    (constant not yet located in the stripped binary).
+  * Boot used during experiments that reproduces the MIUI sensor path
+    exactly: tmp/mados/boot_qteck.img (kernel swap3 + DTB asli).
 
 ### 10b. Fingerprint scanner
 
