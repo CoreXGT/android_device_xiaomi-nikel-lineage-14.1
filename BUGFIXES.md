@@ -305,10 +305,27 @@ Bug diagnostics use these code paths repeatedly:
   — the front sensor now receives power. Remaining blocker: the front chip
   (ID 0x5e20) does not ACK on i2c-3 @ 0x36 (it previously ACKed during the
   MAIN-slot search — I2C mux / socket wiring mystery, next kernel-source
-  task: kd_MultiSensorOpen bus switching). Patched boot:
-  `/data/local/tmp/boot_frontcam.img` (binary-patched kernel + DTB
-  vcamd-sub→ldo_vcamd). Boot backup: `/data/local/tmp/boot_bd13_backup.img`.
-  Kernel source obtained: `kernel_apollo_n/` (n-7.1.2 branch, Helio X20).
+  task: kd_MultiSensorOpen bus switching). Patched boot (KNOWN-GOOD, now
+  flashed): `/data/local/tmp/boot_frontcam.img` = binary-patched kernel
+  (1220000 power tables) + DTB with vcamd_sub/main2 → ldo_vcamd. Boot
+  backup: `/data/local/tmp/boot_bd13_backup.img`. Kernel source obtained:
+  `kernel_apollo_n/` (n-7.1.2 branch, Helio X20).
+- **Why the sub search still fails**: the SUB sensor search probes the
+  **i2c-3 adapter** (kd_sensorlist.c: gI2CBusNum=BUS_NUM2 →
+  g_pstI2Cclient2 = the "kd_camera_hw_bus2" client bound to the
+  i2c@11014000 node), but the front chip (0x5e20) demonstrably responds on
+  **i2c-2** (the MAIN adapter — it was FOUND there during the main-slot
+  search reading 0x5e20). The rear s5k3l8 also sits at 0x36 on i2c-2, so
+  the two sensors share address 0x36 on one bus — a hardware I2C mux is
+  involved (an MT6306-style switch driven by kd_MultiSensorOpen's
+  gI2CBusNum logic, whose original M-gen implementation differed).
+- **Next steps**: with the kernel source in hand
+  (kernel_apollo_n/), study kd_MultiSensorOpen's bus switching +
+  the DT camera_sub@2d node placement (i2c@11014000 vs i2c@11013000) and
+  either fix the bus mapping for nikel or verify the mux chip. NOTE: a
+  boot built with the kernel patch + the ORIGINAL DTB (vgp3 phandle)
+  bootloops while the same kernel + ldo_vcamd DTB boots — keep the current
+  combination.
 
 ### 10b. Fingerprint scanner
 
