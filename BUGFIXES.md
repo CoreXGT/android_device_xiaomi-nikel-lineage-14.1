@@ -319,13 +319,38 @@ Bug diagnostics use these code paths repeatedly:
   the two sensors share address 0x36 on one bus — a hardware I2C mux is
   involved (an MT6306-style switch driven by kd_MultiSensorOpen's
   gI2CBusNum logic, whose original M-gen implementation differed).
-- **Next steps**: with the kernel source in hand
-  (kernel_apollo_n/), study kd_MultiSensorOpen's bus switching +
-  the DT camera_sub@2d node placement (i2c@11014000 vs i2c@11013000) and
-  either fix the bus mapping for nikel or verify the mux chip. NOTE: a
-  boot built with the kernel patch + the ORIGINAL DTB (vgp3 phandle)
-  bootloops while the same kernel + ldo_vcamd DTB boots — keep the current
-  combination.
+- **ROOT CAUSE FOUND (session 3)**: the bd13 kernel (3.18.22) has **NO
+  S5K5E2YA driver at all**. Its kdSensorList includes ov13853, s5k3l8
+  (ofilm/sunny/qteck variants), s5k2x8, s5k4h8, imx377, imx258 and
+  s5k5e8yx(b6) (sensor_id 0x5e80) — but the nikel front chip is S5K5E2YA
+  (sensor_id 0x5e20). No matching driver ⇒ "No imgsensor alive" forever.
+  Meanwhile /system/lib64/libcameracustom.so DOES contain the string
+  "s5k5e2yamipiraw", so the userspace HAL side knows the sensor.
+- **I2C bus fix applied and PROVEN**: DTB surgery — moved
+  /soc/i2c@11014000/camera_sub@2d to /soc/i2c@11013000/camera_sub@36
+  (reg 0x36) so g_pstI2Cclient2 (the SUB path, BUS_NUM2) binds to i2c-2.
+  IMPORTANT: reg must NOT duplicate an existing client on the same bus —
+  reg 0x36 duplicates camera_main@36 and i2c_check_addr_busy rejects it,
+  leaving g_pstI2Cclient2 NULL → kernel panic → bootloop. Fix: set reg
+  to a FREE address (0x10); the sensor driver overrides the slave ID
+  dynamically anyway (probe logs show addr 0x36 from the driver's own
+  SET_SLAVE_I2C_ID). Current flashed boot:
+  `/data/local/tmp/boot_subi2c2.img` = kernel-patched + camera_sub moved
+  to i2c-2 (reg 0x10) + vcamd 1220000 fixes. All sub probes now hit
+  i2c-2; SUB VCAM_D powers up at 1220000 with zero regulator failures;
+  I2C still NACKs because the sensor's driver is missing.
+- **FDT surgery tooling proven**: Python parse/serialize of the flashed
+  DTB (offset 2048+8332913 in the boot image, FDT magic d00dfeed,
+  version 17). Re-serialize = semantically identical (verified by full
+  property walk). `tmp/mados/dtb_repack.bin`, `dtb_moved2.bin`,
+  `boot_repack.img` (control), `boot_subi2c2.img`.
+- **Remaining fix path**: rebuild kernel from kernel_apollo_n
+  (3.18.64, same LTS family as bd13 3.18.22, same MT6797 SoC) which
+  contains S5K5E2YA driver, then splice: [new kernel gz][bd13 DTB
+  patched][LineageOS ramdisk]. Risks: defconfig differences (fuel gauge
+  CW2015, audio codec, touch) and CCCI/RIL compat between 3.18.22 and
+  3.18.64. Fallback = boot_frontcam.img / boot_bd13_backup.img remain
+  on /data/local/tmp.
 
 ### 10b. Fingerprint scanner
 
