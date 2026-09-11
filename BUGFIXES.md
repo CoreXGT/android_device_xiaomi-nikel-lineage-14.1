@@ -351,6 +351,40 @@ Bug diagnostics use these code paths repeatedly:
   CW2015, audio codec, touch) and CCCI/RIL compat between 3.18.22 and
   3.18.64. Fallback = boot_frontcam.img / boot_bd13_backup.img remain
   on /data/local/tmp.
+- **Trial: MIUI-M HAL (2026-09-11) — DEAD END.** Replaced
+  /system/lib{,64}/libcameracustom.so with the official MIUI 6 copies
+  (from miui_HMNote4_V10.2.2.0.MBFCNXM). Facts learned:
+  * MIUI M's own libcameracustom references SENSOR_DRVNAME_S5K5E8YX_B6
+    (front = S5K5E8YX B6, sensor id 0x5e84 per bd13 kdSensorList) — NOT
+    S5K5E2YA. The earlier "0x5e20/s5k5e2ya" reading was wrong.
+  * The M lib fails on Android N with -22 because it needs the M-era
+    MTK symbol __xlog_buf_printf (removed in N liblog). Built a
+    nostdlib shim libxlg.so (DT_NEEDED liblog.so) exporting
+    __xlog_buf_printf -> __android_log_vprint (same arg order) and
+    byte-patched DT_NEEDED "liblog.so"->"libxlg.so" (same length) —
+    after this dlopen of the M lib SUCCEEDS (verified via
+    app_process + System.load).
+  * Still -22: LOS camera.mt6797.so is N-era mtkcam
+    (NSCam::CamDeviceManagerImp, libcameraservice.so family) whose
+    C++ internals don't match the M-era libcameracustom. Making it work
+    requires swapping the whole mtkcam family (dozens of libs) — high
+    risk, not pursued.
+  * The official MIUI-M kernel (from the same ROM) was also checked:
+    SAME sensor list as bd13 (no s5k5e2ya; s5k5e8yxb6 present), and its
+    DTB is byte-identical to bd13's (md5 97ba844f...). Conclusion: the
+    nikel front camera on MIUI-M is driven by the s5k5e8yxb6 driver,
+    which bd13 ALREADY has. So front camera fail is NOT a missing
+    driver — the chip simply never ACKs on i2c-3/0x36 even with correct
+    SUB power (1220000 OK) and also on i2c-2/0x36. Suspect: the front
+    socket's reset/PDN GPIO wiring (pinctrl in the camera_hw2 platform
+    node) is not being driven the way MIUI's HAL expects, or the camera
+    connector seat is marginal. Next honest step = inspect
+    /soc/kd_camera_hw2@1a040000 pinctrl + GPIO state during a probe.
+  * /system/etc/camera/ does NOT exist in LineageOS (MIUI has it with
+    per-sensor XML) — harmless for detection but relevant if HAL work
+    is ever resumed.
+  * libcameracustom LOS was restored from backup (md5 verified);
+    libxlg shim removed.
 
 ### 10b. Fingerprint scanner
 
