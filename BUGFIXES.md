@@ -11,6 +11,29 @@ Bug diagnostics use these code paths repeatedly:
 - `/proc/bus/input/devices`, `/sys/bus/i2c/devices/*/{name,driver}` (hardware inventory)
 - `dumpsys sensorservice`, `dumpsys mount` (sensor and storage state)
 
+## Status overview
+
+| # | Bug | Status | Section |
+| :--- | :--- | :--- | :--- |
+| 0 | Rear camera HAL failed to load | ✅ FIXED | #0 |
+| 1 | SD card never mounted | ✅ FIXED | #1 |
+| 2 | Mobile data (LTE) dead | ✅ FIXED | #2 |
+| 3 | Sensors registered but no data | ✅ FIXED | #3 |
+| 4 | Hotspot 2.4 GHz dies | ✅ FIXED | #4 |
+| 5 | Hotspot 5 GHz rejected by framework | ✅ FIXED | #5 |
+| 6 | Boot image repacking | ✅ document/tooling | #6 |
+| 7 | Misc build/boot fixes | ✅ FIXED | #7 |
+| 10 | Video recording fails | ✅ FIXED | #10 |
+| 12 | **Front camera never enumerated** | ✅ **FIXED** | #12 |
+| 8 | Voice calls crash C2K modem (MD3) | ❌ NOT FIXED (community-wide) | #8 |
+| 10b | Fingerprint scanner | ❌ NOT FIXED | #10b |
+| 11 | Hotspot 5 GHz DFS channels | ⚠️ minor open | #11 |
+
+Note: older front-camera sections #9 / #9a–#9e / #9b record the
+investigation history; several of their interim conclusions were later
+proven WRONG and are superseded by #12. Read them only for "what was
+ruled out", not for the current status.
+
 ---
 
 ## FIXED
@@ -170,9 +193,98 @@ Bug diagnostics use these code paths repeatedly:
   (`2060134`), libgralloc_extra blobs (`9692dda`), ADB enabled on boot
   (`1597ece`).
 
+### 10. Video recording — FIXED (2026-09-10)
+
+- **Symptom**: photo capture works, video recording fails immediately. All
+  resolutions fail.
+- **Root cause chain** (fully traced):
+  1. The SW h264 encoder dies with vendor gralloc buffers (0x80001001).
+  2. The HW encoder (`OMX.MTK.VIDEO.ENCODER.AVC`) is never registered:
+     `Mtk_OMX_Init` fails with **`ParseMtkCoreConfig failed. Can't open
+     /vendor/etc/mtk_omx_core.cfg`** — the MTK OMX core reads its component
+     table from this config file, missing from the ROM, so every MTK OMX
+     component returned `InvalidComponentName`.
+  3. `media_codecs.xml` also had a stray `.` after `/>` aborting the parse
+     before the MTK encoder entries.
+- **Fix** (vendor commit `dc13e71`): replace the M-gen OMX stack with the
+  **N-gen set from Vernee Apollo Lite madOS 7.1.2** (same Helio X20 SoC) —
+  `libMtkOmxCore/Venc/VdecEx`, `libvcodec_{utility,drv,oal}`,
+  `libstagefrighthw` (32+64 bit) + **`system/vendor/etc/mtk_omx_core.cfg`**.
+  Verified: `OMX.MTK.VIDEO.ENCODER.AVC` enumerated (11 encoders vs 8) and
+  video recording works end-to-end.
+- **Known minor issues after the fix**: occasional stutter on some videos,
+  and `audiofx has stopped` when playing — not yet investigated.
+
+### 12. Front camera — FIXED (2026-09-14, kernel migration bd13 → bd54 + kdSensorList swap)
+
+Root cause chain (supersedes #9/#9a–#9e and #9b's conclusions):
+
+1. The booted kernel in the working LOS boot (`boot_bd13_backup.img`)
+   is a MIUI **bd13** build. The MIUI-M stock ROM (V10.2.2.0 MBFCNXM)
+   actually ships a **bd54** build. Both are 3.18.22+ with identical
+   `kdSensorList` layout, identical function addresses, and identical
+   DTBs — but bd13's front-camera path (power-on + probe) NACKs the
+   S5K5E8YX B6-qteck module on i2c-3 @0x18 even with VCAM_D 1.22 V
+   correctly applied, while the bd54 kernel probes and initializes it
+   (OTP `awb_flag = 0x01`, same as MIUI-M).
+2. On both kernels `kdSensorList[3]` = `s5k3l8mipirawqteck` (rear) but
+   the LOS HAL (`libcameracustom.so`) sends `drvIdx=3` for the SUB slot,
+   where MIUI's own kernel expectation is the front driver at list
+   index 6 (`s5k5e8yxb6mipirawqteck`, id 0x5e85). The fix is a
+   full-entry swap of `kdSensorList` entries 3 and 6 (48-byte entries:
+   `{id u32, name[32], pad u32, fn u64}` at raw offset `0x115a390`,
+   stride `0x30`) so HAL drvIdx 3 maps to the qteck-B6 driver.
+3. No i2c slave patch is needed: the bd54 qteck-B6 driver's native
+   `i2c_addr_table` = `{0x30, 0x20, 0xff}` (write id 0x30 = 7-bit 0x18,
+   the module's real address). The earlier `18 2d` patch on bd13 hit
+   the wrong driver's table and is NOT required.
+
+Tooling facts learned along the way (apply to any future kernel test):
+
+- `fastboot boot` does NOT deliver a bd13/bd54 kernel image to this
+  device (LK's RAM-boot gunzip rejects the 19,726,336-byte Image;
+  TWRP's smaller image RAM-boots fine). All "fastboot boot" tests of
+  patched bd13 kernels never ran — the device silently booted the
+  flashed image. Kernel tests must be `fastboot flash boot` + reboot
+  (restore with `boot_bd13_backup.img` on bootloop).
+- The 16 MB boot partition layout is:
+  `[hdr 2048][gz(Image 19726336) 8328830][dtb 131649][pad][ramdisk gz 1631820][864 KB blob + MTK cert1/cert2 structures]`.
+  A repacked image that truncates the tail bootloops; shifting the tail
+  (zopfli-compressed kernel, ~317 KB shorter) boots fine — certs are
+  not position- or content-verified in practice.
+- `/proc/version` reads a banner copy at `0xdd20d0` (bd13 has two
+  copies); patching only `0xb2a0c0` makes `/proc/version` look
+  unpatched while patches are live. Use `camera_info`/driver behavior,
+  not the banner, to verify delivery.
+
+Result: `boot_bd54_swap.img` (bd54 kernel + kdSensorList 3↔6 swap +
+LOS ramdisk, flashed to the boot partition):
+
+```
+CAM[1]:s5k3l8mipirawnew; CAM[2]:s5k5e8yxb6mipirawqteck;
+dumpsys media.camera: Number of camera devices: 2
+camera2: cam 0 facing BACK, cam 1 facing FRONT
+front capture via camera2 (Test6): JPEG 415056 bytes — real image
+rear capture: JPEG 350747 bytes — real image
+```
+
+**Build integration:** the patched kernel is shipped as
+`device/xiaomi/nikel/prebuilt/kernel`
+(`[gz(bd54 Image + kdSensorList swap)][dtb]`, byte-identical to the
+flashed working boot), so every `make otapackage` build produces a
+boot.img with the fix included — no manual flashing step needed by
+other builders. Artifacts kept in `tmp/mados/`: `boot_bd54_swap.img`
+(working boot, also `boot_WORKING_bd54_frontcam.img`),
+`kernel_bd54_swap.raw` / `kernel_bd54_swap.gz`,
+`boot_bd13_backup.img` (restore point).
+
 ---
 
 ## NOT FIXED
+
+Note: sections #9 and #9b below are the HISTORICAL investigation trail
+of the front camera, which is now FIXED (see #12). They stay here only
+so nobody re-discovers the same dead ends.
 
 ### 8. Voice calls crash the C2K modem (MD3) — known, community-wide
 
@@ -198,7 +310,25 @@ Bug diagnostics use these code paths repeatedly:
 - **Workaround**: VoIP (WhatsApp/Telegram). Alternatively use an Android 6.0
   ROM for calls.
 
-### 9. Camera front (5 MP) — sensor not enumerated
+### 9. Camera front (5 MP) — historical trail (SUPERSEDED, fix in #12)
+
+**Status: FIXED — final root cause and fix in section #12.** The trail
+below is kept so nobody re-discovers it. Interim conclusions that were
+later proven WRONG are marked with **[CORRECTION]**:
+
+- **[CORRECTION]** "chip 0x5e20 / S5K5E2YA is the front sensor" — wrong;
+  the front chip is **S5K5E8YX B6-qteck (id 0x5e85)** (see #9d trail and
+  #12).
+- **[CORRECTION]** "the swap approach is abandoned as unreliable" — the
+  kdSensorList e3↔e6 swap is exactly part of the final fix; the earlier
+  failures were because the test method (`fastboot boot`) never actually
+  delivered the patched kernel, and because the bd13 kernel's
+  front-camera power path is broken regardless of the swap.
+- **[CORRECTION]** "HAL must send slave id 0x18" — wrong; the bd54
+  kernel driver's own `i2c_addr_table` already contains 0x30
+  (7-bit 0x18) and works with the stock LOS HAL.
+
+Original trail (2026-09-10/11):
 
 - **Symptom**: after fix #0 the rear camera (camera 0, BACK) works, but
   `Number of camera devices: 1` — the front sensor is never enumerated, so
@@ -243,29 +373,7 @@ Bug diagnostics use these code paths repeatedly:
 - **Tool**: a codec-list checker built from `Test3.java` (Java 7 + dx) run
   via `app_process`; source is 12 lines — rebuild as needed.
 
-### 10. Video recording — FIXED (2026-09-10)
-
-- **Symptom**: photo capture works, video recording fails immediately. All
-  resolutions fail.
-- **Root cause chain** (fully traced):
-  1. The SW h264 encoder dies with vendor gralloc buffers (0x80001001).
-  2. The HW encoder (`OMX.MTK.VIDEO.ENCODER.AVC`) is never registered:
-     `Mtk_OMX_Init` fails with **`ParseMtkCoreConfig failed. Can't open
-     /vendor/etc/mtk_omx_core.cfg`** — the MTK OMX core reads its component
-     table from this config file, missing from the ROM, so every MTK OMX
-     component returned `InvalidComponentName`.
-  3. `media_codecs.xml` also had a stray `.` after `/>` aborting the parse
-     before the MTK encoder entries.
-- **Fix** (vendor commit `dc13e71`): replace the M-gen OMX stack with the
-  **N-gen set from Vernee Apollo Lite madOS 7.1.2** (same Helio X20 SoC) —
-  `libMtkOmxCore/Venc/VdecEx`, `libvcodec_{utility,drv,oal}`,
-  `libstagefrighthw` (32+64 bit) + **`system/vendor/etc/mtk_omx_core.cfg`**.
-  Verified: `OMX.MTK.VIDEO.ENCODER.AVC` enumerated (11 encoders vs 8) and
-  video recording works end-to-end.
-- **Known minor issues after the fix**: occasional stutter on some videos,
-  and `audiofx has stopped` when playing — not yet investigated.
-
-### 9b. Camera front (5 MP) — VCAM_D regulator wiring
+### 9b. Camera front (5 MP) — VCAM_D regulator wiring (historical trail, SUPERSEDED by #12)
 
 - **Symptom**: front camera never enumerates. Kernel probe of every SUB
   driver fails; the front sensor never gets digital power.
@@ -409,6 +517,13 @@ Bug diagnostics use these code paths repeatedly:
     (constant not yet located in the stripped binary).
   * Boot used during experiments that reproduces the MIUI sensor path
     exactly: tmp/mados/boot_qteck.img (kernel swap3 + DTB asli).
+- **[CORRECTION 2026-09-14 — final: FIXED, see #12]** The whole VCAM_D /
+  I2C-mux / slave-id trail above ends here. Final truth: bd13's front
+  power+probe path itself is broken (NACK even with correct power); the
+  bd54 MIUI kernel drives the same module fine; the only kernel change
+  needed besides switching to bd54 is the kdSensorList e3↔e6 swap
+  (drvIdx3→front driver). No DTB surgery, no slave-id HAL patch, no i2c
+  table patch is needed.
 
 ### 10b. Fingerprint scanner
 
@@ -420,72 +535,6 @@ Bug diagnostics use these code paths repeatedly:
 - Only non-DFS channels are guaranteed; if the MTK AP firmware rejects
   5 GHz at `fwReload`, the fallback is to ship 2.4 GHz only and remove the
   5 GHz band from the framework gate (see #5 patch).
-
-### 12. Front camera — SOLVED (kernel migration bd13 → bd54 + kdSensorList swap)
-
-Root cause chain (supersedes #9/#9a–#9e and #10's conclusions):
-
-1. The booted kernel in the working LOS boot (`boot_bd13_backup.img`)
-   is a MIUI **bd13** build. The MIUI-M stock ROM (V10.2.2.0 MBFCNXM)
-   actually ships a **bd54** build. Both are 3.18.22+ with identical
-   `kdSensorList` layout, identical function addresses, and identical
-   DTBs — but bd13's front-camera path (power-on + probe) NACKs the
-   S5K5E8YX B6-qteck module on i2c-3 @0x18 even with VCAM_D 1.22 V
-   correctly applied, while the bd54 kernel probes and initializes it
-   (OTP `awb_flag = 0x01`, same as MIUI-M).
-2. On both kernels `kdSensorList[3]` = `s5k3l8mipirawqteck` (rear) but
-   the LOS HAL (`libcameracustom.so`) sends `drvIdx=3` for the SUB slot,
-   where MIUI's own kernel expectation is the front driver at list
-   index 6 (`s5k5e8yxb6mipirawqteck`, id 0x5e85). The fix is a
-   full-entry swap of `kdSensorList` entries 3 and 6 (48-byte entries:
-   `{id u32, name[32], pad u32, fn u64}` at raw offset `0x115a390`,
-   stride `0x30`) so HAL drvIdx 3 maps to the qteck-B6 driver.
-3. No i2c slave patch is needed: the bd54 qteck-B6 driver's native
-   `i2c_addr_table` = `{0x30, 0x20, 0xff}` (write id 0x30 = 7-bit 0x18,
-   the module's real address). The earlier `18 2d` patch on bd13 hit
-   the wrong driver's table and is NOT required.
-
-Tooling facts learned along the way (apply to any future kernel test):
-
-- `fastboot boot` does NOT deliver a bd13/bd54 kernel image to this
-  device (LK's RAM-boot gunzip rejects the 19,726,336-byte Image;
-  TWRP's smaller image RAM-boots fine). All "fastboot boot" tests of
-  patched bd13 kernels never ran — the device silently booted the
-  flashed image. Kernel tests must be `fastboot flash boot` + reboot
-  (restore with `boot_bd13_backup.img` on bootloop).
-- The 16 MB boot partition layout is:
-  `[hdr 2048][gz(Image 19726336) 8328830][dtb 131649][pad][ramdisk gz 1631820][864 KB blob + MTK cert1/cert2 structures]`.
-  A repacked image that truncates the tail bootloops; shifting the tail
-  (zopfli-compressed kernel, ~317 KB shorter) boots fine — certs are
-  not position- or content-verified in practice.
-- `/proc/version` reads a banner copy at `0xdd20d0` (bd13 has two
-  copies); patching only `0xb2a0c0` makes `/proc/version` look
-  unpatched while patches are live. Use `camera_info`/driver behavior,
-  not the banner, to verify delivery.
-
-Result: `boot_bd54_swap.img` (bd54 kernel + kdSensorList 3↔6 swap +
-LOS ramdisk, flashed to the boot partition):
-
-```
-CAM[1]:s5k3l8mipirawnew; CAM[2]:s5k5e8yxb6mipirawqteck;
-dumpsys media.camera: Number of camera devices: 2
-camera2: cam 0 facing BACK, cam 1 facing FRONT
-front capture via camera2 (Test6): JPEG 415056 bytes — real image
-rear capture: JPEG 350747 bytes — real image
-```
-
-Artifacts: `tmp/mados/boot_bd54_swap.img` (working boot, also kept as
-`boot_WORKING_bd54_frontcam.img`), `kernel_bd54_swap.raw` /
-`kernel_bd54_swap.gz` (patched bd54 kernel), `boot_bd13_backup.img`
-(restore point). Fingerprint (Goodix HAL port, #10b) and voice-call
-MD3 speech crash remain open.
-
-**Build integration:** the patched kernel is shipped as
-`device/xiaomi/nikel/prebuilt/kernel`
-(`[gz(bd54 Image + kdSensorList swap)][dtb]`, byte-identical to the
-flashed working boot), so every `make otapackage` build produces a
-boot.img with the fix included — no manual flashing step needed by
-other builders.
 
 ---
 

@@ -79,22 +79,31 @@ jack.server.vm-args=-Dfile.encoding=UTF-8 -XX:+TieredCompilation -Xmx2048m
 | Boot / WiFi / Bluetooth | ✅ Working | |
 | Mobile data (LTE) | ✅ Fixed | MediaTekRIL class, see BUGFIXES.md #2 |
 | SD card | ✅ Fixed | fstab case mismatch, BUGFIXES.md #1 |
-| Sensors (accel/gyro/mag/rotation) | ✅ Fixed | needs MIUI bd13 kernel + rc, BUGFIXES.md #3 |
+| Sensors (accel/gyro/mag/rotation) | ✅ Fixed | needs MIUI bd54 kernel (shipped in `prebuilt/kernel`), BUGFIXES.md #3 |
 | Hotspot 2.4 GHz | ✅ Fixed | netd patches, BUGFIXES.md #4 |
 | Hotspot 5 GHz | ✅ Fixed | framework + netd patches, BUGFIXES.md #5 |
 | ADB on boot | ✅ Fixed | BUGFIXES.md #7 |
-| Camera (rear) | ✅ Fixed | libmtkjpeg bionic symbol patch, BUGFIXES.md #0 |
-| Camera (front) | ❌ Broken | sensor not enumerated, BUGFIXES.md #9 |
-| Voice calls | ❌ Broken | MD3 speech crash, known issue, BUGFIXES.md #9 |
-| Fingerprint scanner | ❌ Not tested/known issue | |
+| Camera (rear) | ✅ Fixed | photo + video, BUGFIXES.md #0 and #10 |
+| Camera (front) | ✅ Fixed | photo, BUGFIXES.md #12 (bd54 kernel + kdSensorList swap, shipped in `prebuilt/kernel`) |
+| Voice calls | ❌ Broken | MD3 speech crash, known issue, BUGFIXES.md #8 |
+| Fingerprint scanner | ❌ Not working | needs Goodix HAL port, BUGFIXES.md #10b |
 | FM radio | Not verified | |
+
+## Kernel note
+
+The `prebuilt/kernel` file in this tree is a **MIUI bd54 kernel
+(3.18.22)** with a `kdSensorList` binary patch (front/rear driver swap).
+It is required: the SamarV bd04 kernel delivers no sensor data and the
+MIUI bd13 kernel NACKs the front camera. Building the ROM always packs
+this file into boot.img — do NOT replace it with a kernel built from
+LOS source (front camera breaks again). Details: BUGFIXES.md #12.
 
 ## Known Issues (details in BUGFIXES.md)
 
 1. **Voice calls crash the C2K modem (MD3)** — not fixable from /system; every
    N-gen (7.x) build has this. Use VoIP apps for calls.
-2. **Front camera not enumerated** — rear camera fixed (see #0); the front sensor probe fails kernel-side, see #9.
-3. **Fingerprint scanner** — untested on this tree.
+2. **Fingerprint scanner** — driver node present, HAL not ported (Goodix,
+   works on MIUI). See #10b.
 
 ## Credits
 
