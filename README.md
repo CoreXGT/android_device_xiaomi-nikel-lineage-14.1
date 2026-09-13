@@ -43,6 +43,18 @@ cd device/xiaomi/nikel/patches && . apply.sh && cd -
 source build/envsetup.sh
 breakfast nikel
 make otapackage -j4
+
+# Jack server fix
+# add this to ~/.jack-server/config.properties
+jack.server.max-jars-size=104857600
+jack.server.max-service=2
+jack.server.service.port=8076
+jack.server.max-service.by-mem=1\=2147483648\:2\=3221225472\:3\=4294967296
+jack.server.admin.port=8077
+jack.server.config.version=2
+jack.server.time-out=7200
+
+jack.server.vm-args=-Dfile.encoding=UTF-8 -XX:+TieredCompilation -Xmx2048m
 ```
 
 ### Build notes
