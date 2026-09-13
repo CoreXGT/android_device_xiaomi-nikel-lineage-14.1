@@ -480,6 +480,13 @@ Artifacts: `tmp/mados/boot_bd54_swap.img` (working boot, also kept as
 (restore point). Fingerprint (Goodix HAL port, #10b) and voice-call
 MD3 speech crash remain open.
 
+**Build integration:** the patched kernel is shipped as
+`device/xiaomi/nikel/prebuilt/kernel`
+(`[gz(bd54 Image + kdSensorList swap)][dtb]`, byte-identical to the
+flashed working boot), so every `make otapackage` build produces a
+boot.img with the fix included — no manual flashing step needed by
+other builders.
+
 ---
 
 ## How to apply the out-of-tree fixes

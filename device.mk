@@ -59,7 +59,8 @@ PRODUCT_COPY_FILES += \
     $(LOCAL_PATH)/rootdir/init.recovery.mt6797.rc:root/init.recovery.mt6797.rc
 
 # Sensor permission fix (bsthal needs system-write on sysfs driver nodes;
-# requires MIUI bd13 kernel — SamarV bd04 kernel delivers no sensor data)
+# requires MIUI bd54 kernel in prebuilt/kernel — bd13/bd04 kernels give no
+# sensor data and bd13 also NACKs the front camera; see BUGFIXES #12)
 PRODUCT_COPY_FILES += \
     $(LOCAL_PATH)/rootdir/init.sensor-fix.rc:system/etc/init/sensor-fix.rc
 
