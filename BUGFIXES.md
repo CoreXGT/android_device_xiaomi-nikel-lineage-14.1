@@ -622,6 +622,16 @@ Original trail (2026-09-10/11):
 - **Next:** validate on the integrated build; if the TA still returns
   -3, the suspects are EMI-MPU region setup inside Drspi and the TEE's
   view of the kernel-published SPI device.
+- **Boot-loop lesson (2026-09-14, fixed):** adding `libMcClient.so` to
+  /system made MTK's `keystore.mt6797.so` (Keymaster TEE HAL) load for
+  the first time; without the mobicore daemon it retries forever, keystore
+  never registers, system_server NPE-loops on `LockdownVpnTracker`. Fix:
+  the daemon must be up before keystore (class main) — init.nikel-fp.rc is
+  installed as `system/etc/init/nikel-fp.rc` (auto-imported) and starts it
+  on `post-fs-data`. Verified live: manual daemon start → keystore wraps
+  "Keymaster TEE HAL" → boot completes. On that same boot the FPC TA's
+  INIT still returns -3/FPC_ERROR_COMM, so the sensor-SPI failure is real
+  and not an artifact of the hacked test environment.
 
 ### 11. Hotspot 5 GHz DFS channels
 
