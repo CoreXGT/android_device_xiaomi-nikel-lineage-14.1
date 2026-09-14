@@ -28,6 +28,14 @@ Fork of bju2000's device tree, maintained by CoreXGT.
 ## Build Instructions
 
 ```bash
+# Prepare your OS
+sudo apt update
+sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git \
+  git-core gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev \
+  liblz4-tool libncurses5 libncurses5-dev libsdl1.2-dev libssl-dev libwxgtk3.0-dev \
+  libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc \
+  zip zlib1g-dev openjdk-8-jdk python git-lfs pigz
+
 # Get the LineageOS 14.1 source
 repo init -u git://github.com/LineageOS/android.git -b cm-14.1
 repo sync
@@ -50,21 +58,15 @@ export ANDROID_JACK_VM_ARGS="-Dfile.encoding=UTF-8 -XX:+TieredCompilation -Xmx61
 
 export LC_ALL=C
 export TMPDIR=<big tmp dir>
+export CCACHE_DIR=<cache dir>
+export MAKEFLAGS="-j4"
 make otapackage -j4
-
-# Jack server fix (first time only; applies the settings the server
-# would otherwise keep overwriting on shutdown)
-# add this to ~/.jack-server/config.properties
-jack.server.max-jars-size=104857600
-jack.server.max-service=2
-jack.server.service.port=8076
-jack.server.max-service.by-mem=1\=2147483648\:2\=3221225472\:3\=4294967296
-jack.server.admin.port=8077
-jack.server.config.version=2
-jack.server.time-out=7200
-
-jack.server.vm-args=-Dfile.encoding=UTF-8 -XX:+TieredCompilation -Xmx2048m
 ```
+
+> The Jack server's `~/.jack-server/config.properties` tweaks (max-service,
+> ports) are host-specific and NOT required — `ANDROID_JACK_VM_ARGS` above
+> already controls the heap and takes priority on every build. Skip them
+> unless you hit Jack OOM or port clashes on your machine.
 
 ### Build notes
 
@@ -95,7 +97,7 @@ jack.server.vm-args=-Dfile.encoding=UTF-8 -XX:+TieredCompilation -Xmx2048m
 | Camera (rear) | ✅ Fixed | photo + video, BUGFIXES.md #0 and #10 |
 | Camera (front) | ✅ Fixed | photo, BUGFIXES.md #12 (bd54 kernel + kdSensorList swap, shipped in `prebuilt/kernel`) |
 | Voice calls | ❌ Broken | MD3 speech crash, known issue, BUGFIXES.md #8 |
-| Fingerprint scanner | ❌ Not working | needs Goodix HAL port, BUGFIXES.md #10b |
+| Fingerprint scanner | ✅ Fixed | Goodix + Kinibi TEE port, BUGFIXES.md #10b/#10b-c |
 | FM radio | Not verified | |
 
 ## Kernel note
@@ -111,8 +113,10 @@ LOS source (front camera breaks again). Details: BUGFIXES.md #12.
 
 1. **Voice calls crash the C2K modem (MD3)** — not fixable from /system; every
    N-gen (7.x) build has this. Use VoIP apps for calls.
-2. **Fingerprint scanner** — driver node present, HAL not ported (Goodix,
-   works on MIUI). See #10b.
+
+> Fingerprint requires the mobicore TEE daemon (shipped + started on
+> post-fs-data). If the fingerprint menu errors, check `getprop sys.boot_completed`
+> and `logcat | grep gf_` first.
 
 ## Credits
 

@@ -573,7 +573,18 @@ Original trail (2026-09-10/11):
   (drvIdx3→front driver). No DTB surgery, no slave-id HAL patch, no i2c
   table patch is needed.
 
-### 10b. Fingerprint scanner (FPC1145 + Kinibi TEE)
+### 10b. Fingerprint scanner (Goodix + Kinibi TEE) — FIXED (2026-09-14)
+
+- **Status: WORKING.** Enrollment, unlock and screen-off wake-up verified on
+  the integrated build. The full stack ships in the ROM: Kinibi TEE runtime
+  (`mcDriverDaemon` + `ld.mc`, started on `post-fs-data` before keystore),
+  MIUI `fingerprintd` (hardcodes HAL id `gf_fingerprint`),
+  `gf_fingerprint.default.so` + `goodixfingerprintd` + `libgf_*` +
+  `libgoodixfingerprintd_binder`, the 66-file MIUI mcRegistry (incl. the
+  Goodix trustlet and the AOSP gatekeeper trustlet), and the TEE gatekeeper
+  HAL (`gatekeeper.mt6797.so` = `libMcGatekeeper.so`, 64+32 — required, see
+  #10b-c). The kernel bd54 prebuilt's Goodix driver loads `gf_ta.axf` into
+  the TEE at probe.
 
 - **Sensor identity — FINAL (2026-09-14, corrected):** the device sensor is a
   **GOODIX on SPI0** (`soc/spi@1100a000/goodix-fp@1`), NOT the FPC1145. Proof:
@@ -692,3 +703,17 @@ applying the patches, regenerate the patch afterwards:
 cd system/netd
 git format-patch <base-commit>..HEAD --stdout > device/xiaomi/nikel/patches/system_netd.patch
 ```
+
+### 10b-d. Fingerprint verified end-to-end (2026-09-14)
+
+- After vendor `0e5ea60` (TEE gatekeeper HAL) and a fresh flash: PIN setup
+  works (TEE gatekeeper), enrollment completes, unlock works. The MIUI-era
+  templates that triggered the limit error earlier are no longer an issue —
+  1058 was always the gatekeeper/HMAC failure (see #10b-c), not a template
+  count problem (the real limit error is 1005).
+- Debugging aids if it regresses: `logcat | grep -aE '\[gf_'` (HAL/TA logs),
+  `logcat | grep -a 'software GateKeeper'` (must NOT appear — if it does,
+  the TEE gatekeeper HAL is missing or fails to load), `service check
+  android.hardware.fingerprint.IGoodixFingerprintDaemon`, `service check
+  android.security.keystore`, `pidof mcDriverDaemon goodixfingerprintd
+  fingerprintd`.
