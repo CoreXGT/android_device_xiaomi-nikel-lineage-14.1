@@ -573,10 +573,55 @@ Original trail (2026-09-10/11):
   (drvIdx3→front driver). No DTB surgery, no slave-id HAL patch, no i2c
   table patch is needed.
 
-### 10b. Fingerprint scanner
+### 10b. Fingerprint scanner (FPC1145 + Kinibi TEE)
 
-- Driver node exists (`fpc_irq` input, `/dev/fpsensor`) but HAL/service
-  integration has not been built or tested on this tree.
+- **Sensor identity (2026-09-14):** nikel ships an **FPC1145** on **SPI1**
+  (DT `soc/spi@11012000/fpc1145@0`, compatible `fpc,fpc1020`; IRQ companion
+  platform device `soc:fpc_interrupt@0` with gpio_irq=86, gpio_reset=43,
+  `fpc,use_fpc2050`). Kernel `fpc1020` driver (built-in) is a thin stub:
+  probe only allocates, registers the SPI device into a global and returns 0;
+  all sensor I/O happens inside the TEE via MIUI's "MTK TZ spi" path.
+- **Real stack (from MIUI system.img):**
+  `fingerprint.mt6797.so` (FPC TEE HAL, `fpc_tee_*`, 32+64 bit) +
+  `lib_fpc_tac_shared.so` (hardcodes `/system/app/mcRegistry/0401…0.tlbin`)
+  + trustlet `0401…0.tlbin` (the FPC TA, MCLF/Thumb, 698 KB) + SPI device
+  root `030b/030c` (Drspi, load-on-demand from the registry) +
+  `mcDriverDaemon` (t-base V006, Aug 2018 build; TEE = V009 from the `tee1`
+  partition, untouched) + MIUI `fingerprintd` (aarch64, Android 23; the
+  daemon interface is unchanged in N so LOS's framework works with it).
+- **Dead ends (proven):** the "fpsensor" HAL/TA stack (`0522…tlbin`,
+  Leadcore) belongs to another device variant — its `-12` failure was a
+  red herring. Kernel kthread `ex_open` wants trustlet `070505…` which does
+  not exist in the MIUI registry either (same single failure), and MIUI
+  mounts no `/efs` auth token (MC_AUTH_TOKEN_PATH points nowhere on MIUI
+  too) — both irrelevant. SPI1 needs no 070505 session; the TA drives SPI
+  itself via the Drspi device root.
+- **Live status before integration:** TEE runtime verified working from
+  userspace (device open, 0401 trustlet load, session, notify, TCI round
+  trip, `mcGetSessionErrorCode`=0 — the TA is alive and answering). The
+  TA's `INIT` command returns message error **-3 = FPC_ERROR_COMM** (via
+  the TAC's own error table), i.e. its in-TEE sensor SPI transfer fails;
+  root cause not visible from the normal world. `clk_enable` sysfs write
+  is real (`mt_spi_enable_clk`). All live tests ran against a
+  bind-mount-hacked system; the integrated ROM boot is the real test.
+- **Integration (this commit):**
+  `vendor/xiaomi/nikel/system/`: FPC HAL 32+64 as
+  `lib{,64}/hw/fingerprint.mt6797.so`, `lib_fpc_tac_shared.so` 32+64,
+  `bin/mcDriverDaemon`, `bin/ld.mc`, `bin/fingerprintd`,
+  `lib{,64}/libMcClient.so` + `libMcRegistry.so`, and the full 66-file
+  Kinibi registry at `app/mcRegistry/`. The obsolete fpsensor HAL and the
+  device-tree wrapper shim (`device/fingerprint/`) are removed — MIUI's
+  `fingerprint.mt6797.so` is a real `fingerprint` HAL and is found by
+  `hw_get_module` directly.
+  `init.nikel-fp.rc`: `mobicore` daemon at **class core** (MIUI-exact 7
+  drbins, user system) started on `on fs`; `fingerprintd` class
+  late_start; FPC sysfs nodes (`soc:fpc_interrupt@0/{clk_enable,hw_reset,
+  chip_id,irq,do_wakeup}`) chowned to system; `/data/fpc` + `/data/fpsensor`
+  created; `MC_AUTH_TOKEN_PATH=/data` (MIUI uses a non-existent /efs, same
+  result: daemon runs with device endorsements disabled).
+- **Next:** validate on the integrated build; if the TA still returns
+  -3, the suspects are EMI-MPU region setup inside Drspi and the TEE's
+  view of the kernel-published SPI device.
 
 ### 11. Hotspot 5 GHz DFS channels
 

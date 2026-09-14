@@ -123,3 +123,11 @@
 
 #MTK In-House TEE
 /dev/ttyACM0              0660   radio      radio
+
+# fingerprint / TEE (BUGFIXES #13)
+/dev/fpsensor            0660   system   system
+/dev/goodix_fp           0660   system   system
+/dev/mobicore            0600   system   system
+/dev/mobicore-user       0666   system   system
+/dev/t-base-tui          0666   system   system
+/dev/uinput              0666   system   system

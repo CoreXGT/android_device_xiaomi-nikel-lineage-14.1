@@ -1,0 +1,45 @@
+# nikel fingerprint — FPC1145 + Kinibi TEE (MIUI FPC stack), see BUGFIXES.md #13
+
+on fs
+    mkdir /data/app/mcRegistry 0775 system system
+    mkdir /data/app/mcRegistry/TbStorage 0775 system system
+    export MC_AUTH_TOKEN_PATH /data
+    start mobicore
+
+service mobicore /system/bin/mcDriverDaemon -r /system/app/mcRegistry/020f0000000000000000000000000000.drbin -r /system/app/mcRegistry/05120000000000000000000000000000.drbin -r /system/app/mcRegistry/070b0000000000000000000000000000.drbin -r /system/app/mcRegistry/020b0000000000000000000000000000.drbin -r /system/app/mcRegistry/05070000000000000000000000000000.drbin -r /system/app/mcRegistry/04020000000000000000000000000000.drbin -r /system/app/mcRegistry/05230000000000000000000000000000.drbin
+    user system
+    group system
+    class core
+    oneshot
+
+service fingerprintd /system/bin/fingerprintd
+    class late_start
+    user system
+    group system
+
+on boot
+    chown system system /sys/devices/soc/soc:fpc_interrupt@0/clk_enable
+    chown system system /sys/devices/soc/soc:fpc_interrupt@0/hw_reset
+    chown system system /sys/devices/soc/soc:fpc_interrupt@0/chip_id
+    chown system system /sys/devices/soc/soc:fpc_interrupt@0/irq
+    chown system system /sys/devices/soc/soc:fpc_interrupt@0/do_wakeup
+    chmod 0660 /sys/devices/soc/soc:fpc_interrupt@0/clk_enable
+    chmod 0660 /sys/devices/soc/soc:fpc_interrupt@0/hw_reset
+    chmod 0660 /sys/devices/soc/soc:fpc_interrupt@0/chip_id
+    chmod 0660 /sys/devices/soc/soc:fpc_interrupt@0/irq
+    chmod 0660 /sys/devices/soc/soc:fpc_interrupt@0/do_wakeup
+    chown system system /dev/goodix_fp
+    chmod 0660 /dev/goodix_fp
+    chown system system /dev/fpsensor
+    chmod 0660 /dev/fpsensor
+    chown system system /dev/mobicore
+    chmod 0600 /dev/mobicore
+    chown system system /dev/mobicore-user
+    chmod 0666 /dev/mobicore-user
+    chown system system /dev/t-base-tui
+    chmod 0666 /dev/t-base-tui
+    chown system system /dev/uinput
+    chmod 0666 /dev/uinput
+    mkdir /data/fpsensor 0770 system system
+    mkdir /data/fpc 0770 system system
+    mkdir /data/fpc/socket 0770 system system
