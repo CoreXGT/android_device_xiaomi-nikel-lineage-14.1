@@ -575,12 +575,14 @@ Original trail (2026-09-10/11):
 
 ### 10b. Fingerprint scanner (FPC1145 + Kinibi TEE)
 
-- **Sensor identity (2026-09-14):** nikel ships an **FPC1145** on **SPI1**
-  (DT `soc/spi@11012000/fpc1145@0`, compatible `fpc,fpc1020`; IRQ companion
-  platform device `soc:fpc_interrupt@0` with gpio_irq=86, gpio_reset=43,
-  `fpc,use_fpc2050`). Kernel `fpc1020` driver (built-in) is a thin stub:
-  probe only allocates, registers the SPI device into a global and returns 0;
-  all sensor I/O happens inside the TEE via MIUI's "MTK TZ spi" path.
+- **Sensor identity — FINAL (2026-09-14, corrected):** the device sensor is a
+  **GOODIX on SPI0** (`soc/spi@1100a000/goodix-fp@1`), NOT the FPC1145. Proof:
+  with the TEE daemon up, the kernel-driver-loaded goodix TA (`gf_ta.axf`)
+  answers `GF_CMD_INIT` with **err = 0** inside the TEE, while the FPC TA
+  returns -3/FPC_ERROR_COMM (it probes SPI1, where nothing is attached).
+  MIUI's `/system/bin/fingerprintd` hardcodes HAL id **"gf_fingerprint"**;
+  the `fingerprint.mt6797.so` FPC stack in MIUI's system.img is for another
+  device revision.
 - **Real stack (from MIUI system.img):**
   `fingerprint.mt6797.so` (FPC TEE HAL, `fpc_tee_*`, 32+64 bit) +
   `lib_fpc_tac_shared.so` (hardcodes `/system/app/mcRegistry/0401…0.tlbin`)

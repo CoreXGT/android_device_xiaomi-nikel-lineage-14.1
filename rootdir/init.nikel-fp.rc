@@ -29,14 +29,23 @@ on post-fs-data
     chmod 0660 /sys/devices/soc/soc:fpc_interrupt@0/irq
     chmod 0660 /sys/devices/soc/soc:fpc_interrupt@0/do_wakeup
     mkdir /data/fpsensor 0770 system system
+    mkdir /data/gf_data 0770 system system
     mkdir /data/fpc 0770 system system
     mkdir /data/fpc/socket 0770 system system
     start mobicore
+    start goodixfpd
 
 service mobicore /system/bin/mcDriverDaemon -r /system/app/mcRegistry/020f0000000000000000000000000000.drbin -r /system/app/mcRegistry/05120000000000000000000000000000.drbin -r /system/app/mcRegistry/070b0000000000000000000000000000.drbin -r /system/app/mcRegistry/020b0000000000000000000000000000.drbin -r /system/app/mcRegistry/05070000000000000000000000000000.drbin -r /system/app/mcRegistry/04020000000000000000000000000000.drbin -r /system/app/mcRegistry/05230000000000000000000000000000.drbin
     user system
     group system
     oneshot
+
+# Goodix: real sensor (gf_ta.axf loaded into the TEE by the kernel driver at
+# probe). fingerprintd (MIUI) loads HAL id "gf_fingerprint" which talks to
+# this daemon's IGoodixFingerprintDaemon binder.
+service goodixfpd /system/bin/goodixfingerprintd
+    user system
+    group system sdcard_rw
 
 service fingerprintd /system/bin/fingerprintd
     class late_start
