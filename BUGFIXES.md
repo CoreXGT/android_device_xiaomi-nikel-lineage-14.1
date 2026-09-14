@@ -635,6 +635,33 @@ Original trail (2026-09-10/11):
   INIT still returns -3/FPC_ERROR_COMM, so the sensor-SPI failure is real
   and not an artifact of the hacked test environment.
 
+### 10b-c. Goodix enroll error 1058 — TEE gatekeeper missing
+
+- **Symptom (2026-09-14, after the Goodix switch):** the fingerprint menu
+  works, the sensor produces IRQs and the framework gets acquisitions, but
+  enrollment instantly fails. The TA disassembly shows 1058 is NOT the
+  template limit (that is 1005, `gf_algo_fingers_limit_check`): 1056/1057/
+  1058 are three token checks in `gf_ta_invoke_cmd_entry_point` — 1058 is
+  the **HMAC verification of the 69-byte enroll/auth token** (37-byte HAT
+  + 32-byte HMAC) computed by `gf_generate_hmac` → `get_hmac_key`, which
+  derives the key from a 12-byte seed inside the TA via a tlApi call.
+- **Root cause:** LineageOS ships no `gatekeeper.*.so` at all; in
+  `system/core/gatekeeperd/gatekeeperd.cpp`, `hw_get_module_by_class()`
+  fails and gatekeeperd logs "falling back to software GateKeeper"
+  (`SoftGateKeeperDevice`). The soft-signed token cannot satisfy the TA's
+  HMAC check → every enroll returns 1058.
+- **Fix:** MIUI's TEE gatekeeper HAL exists in `system{,-img}/lib{,64}/hw/
+  libMcGatekeeper.so` with `gatekeeper.mt6797.so` / `gatekeeper.nikel.so`
+  symlinks pointing at it (plus the AOSP `3d08821c…` gatekeeper trustlet,
+  already present in the shipped registry). Shipped both arches as
+  `system/lib{,64}/hw/gatekeeper.mt6797.so` (vendor commit 0e5ea60).
+  Requires `libgatekeeper.so` (built by AOSP `system/gatekeeper`), already
+  in the ROM.
+- **Caveat:** credentials enrolled while the soft gatekeeper was active
+  (any PIN/pattern set before this fix) cannot be verified by the TEE
+  gatekeeper. Remove the screen lock before flashing, or wipe
+  `/data/misc/keystore` + `/data/system/locksettings*` in recovery.
+
 ### 11. Hotspot 5 GHz DFS channels
 
 - Only non-DFS channels are guaranteed; if the MTK AP firmware rejects
