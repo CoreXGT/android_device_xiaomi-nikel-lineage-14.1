@@ -280,6 +280,54 @@ other builders. Artifacts kept in `tmp/mados/`: `boot_bd54_swap.img`
 
 ---
 
+### 13. Rear camera green cast — FIXED (2026-09-14, 3A tuning profile remap)
+
+**Symptom:** rear photos are strongly tinted green, most visible in low
+light (front camera normal). Device Info HW also showed both cameras
+with identical default info (array 3072x1728, focal 3.5).
+
+**Root cause:** the HAL3 static-metadata constructors live in the M-gen
+blob `libcam.metadataprovider.so` (32-bit; mediaserver is 32-bit) and are
+compiled per sensor as
+`constructCustStaticMetadata_DEVICE_{SCALER,FEATURE,REQUEST}_SENSOR_DRVNAME_<X>`
+for 9 MTK reference sensors (imx214, imx230, imx258, imx377, ov23850,
+s5k2x8, s5k3m2, s5k3p3sx, s5k5e2ya). None of nikel's sensors
+(ov13853 / s5k3l8new / s5k5e8yxb6qteck) is in that list. The lookup keys
+off the drvname string inside `libcameracustom.so` (`libcam.halsensor`
+dlsym's the constructor by name), so the HAL falls back to built-in
+defaults — and the rear sensor's 3A runs with mismatched tables → green
+AWB cast. `libcam.metadata.so` is an empty shim in this ROM; the LENS
+constructors are absent for ALL sensors, hence focal stays 3.5
+(unfixable without MTK's metadata build system).
+
+**Fix:** remap the drvname strings in `libcameracustom.so`
+(both 32-bit and 64-bit, same-length string replacement):
+
+- rear: `SENSOR_DRVNAME_S5K5E2YA_MIPI_RAW` → `SENSOR_DRVNAME_IMX258_MIPI_RAW`
+  (13MP class — neutral AWB, full 4160x3120 works)
+- front: `SENSOR_DRVNAME_S5K5E8YX_MIPI_RAW` → `SENSOR_DRVNAME_S5K5E2YA_MIPI_RAW`
+  (correct 5MP-class metadata, neutral)
+
+Profile test matrix (same scene, camera2 capture): stock
+G/(R+B)=1.74 (green), IMX258 1.20 (best), IMX214 1.77 (green),
+S5K3P3SX also worse than IMX258. IMX258 wins for the rear; S5K5E2YA for
+the front. **Note:** all earlier "IMX258/IMX214 capture is black / AE
+broken" observations were FALSE — the phone was lying face-down on a
+dark desk. Re-test under light before trusting a black JPEG.
+
+**Verification (live, bind-mount + `killall mediaserver`):**
+
+```
+rear 2560x1920: RGB (80,126,65) stock -> (114,124,93) imx258, neutral
+rear 4160x3120: full 13MP capture works (slightly green in dark corners)
+front 1280x960: RGB (115,115,109), neutral
+```
+
+Shipped in `vendor/xiaomi/nikel/system/lib{,64}/libcameracustom.so`
+(commit `b2663f3`).
+
+---
+
 ## NOT FIXED
 
 Note: sections #9 and #9b below are the HISTORICAL investigation trail
