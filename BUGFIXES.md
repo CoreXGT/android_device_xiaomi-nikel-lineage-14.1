@@ -25,12 +25,12 @@ Bug diagnostics use these code paths repeatedly:
 | 7 | Misc build/boot fixes | ✅ FIXED | #7 |
 | 10 | Video recording fails | ✅ FIXED | #10 |
 | 12 | **Front camera never enumerated** | ✅ **FIXED** | #12 |
-| 14 | **Off-charge bootloop (logo MI berulang)** | ✅ **FIXED (2026-09-19)** | #14 |
+| 14 | **Off-charge bootloop (MI logo repeats when charging while off)** | ✅ **FIXED (2026-09-19)** | #14 |
 | 8 | Voice calls crash C2K modem (MD3) | ❌ NOT FIXED (community-wide) | #8 |
-| 15 | Rear camera green cast at night | ✅ FIXED (2026-09-14) | #13 |
-| 16 | AudioFx has stopped | ❌ NOT FIXED | — |
-| 17 | SMS (Messaging) app crashes on open | ❌ NOT FIXED | — |
-| 18 | AOSP Browser crashes on open | ❌ NOT FIXED | — |
+| 13 | Rear camera green cast at night / low light | ✅ FIXED (2026-09-14) | #13 |
+| 15 | AudioFx has stopped (frequent, especially while ringing) | ❌ NOT FIXED | — |
+| 16 | SMS (Messaging) app crashes when opening a message | ❌ NOT FIXED | — |
+| 17 | AOSP Browser crashes on open (Firefox works) | ❌ NOT FIXED | — |
 | 10b | Fingerprint scanner | ❌ NOT FIXED | #10b |
 | 11 | Hotspot 5 GHz DFS channels | ⚠️ minor open | #11 |
 
@@ -339,48 +339,50 @@ Note: sections #9 and #9b below are the HISTORICAL investigation trail
 of the front camera, which is now FIXED (see #12). They stay here only
 so nobody re-discovers the same dead ends.
 
-### 14. Off-charge bootloop (logo MI berulang saat dicolok charger saat HP mati) — FIXED (2026-09-19)
+### 14. Off-charge bootloop (MI logo repeats when charger is plugged while powered off) — FIXED (2026-09-19)
 
-- **Symptom**: HP matikan lalu dicolok charger (dinding maupun PC) → tidak
-  ada indikator charging, HP loop logo MI berulang-ulang, tidak pernah boot
-  ke home screen.
-- **Diagnosis** (tooling: `lsusb` polling USB VID/PID):
-  - Loop terukur ~18 detik/cycle: preloader `0e8d:2000` (~3 s) → LK + logo
-    `0e8d:2008` (~15 s) → WDT reset. **Kernel tidak pernah jalan** (adbd
-    tidak pernah muncul; `last_kmsg` hanya header ram_console karena tiap
-    reset preloader membersihkannya, `printk.disable_uart=1` = tanpa UART).
-  - Semua komponen KPOC (kernel power off charging) lengkap di ROM:
+- **Symptom**: power off the phone, then plug in a charger (wall or PC USB)
+  → no charging indicator, the MI boot logo loops forever, never boots to
+  the home screen.
+- **Diagnosis** (USB VID/PID polling with `lsusb`):
+  - Measured reset cycle ≈ 18 s: preloader `0e8d:2000` (~3 s) → LK + logo
+    `0e8d:2008` (~15 s) → WDT reset. **The kernel never starts** (adbd never
+    appears; `last_kmsg` contains only the ram_console header because the
+    preloader clears it on every reset; `printk.disable_uart=1` = no UART).
+  - All KPOC (kernel power off charging) pieces are present in this ROM:
     `init.mt6797.rc` `on charger` → mount system + `start fuelgauged` +
-    `start kpoc_charger` (+ adb), binary `/system/bin/kpoc_charger`
-    (26 KB, dari MIUI blob) + `/sbin/healthd` + semua lib (`libshowlogo`,
-    `libgui`, `libui`, `libhardware_legacy`, `libsuspend`) ada.
-  - Kernel & LK = prebuilt MIUI bd54 (kernel diff vs MIUI stock boot.img
-    hanya build-stamp, tanggal, sensor config — KPOC logic identik).
-    LK string KPOC lengkap (`mt65xx_bat_init`, `check_bat_protect_status`,
+    `start kpoc_charger` (+ adb), binaries `/system/bin/kpoc_charger`
+    (26 KB, MIUI blob) + `/sbin/healthd` + all needed libs (`libshowlogo`,
+    `libgui`, `libui`, `libhardware_legacy`, `libsuspend`) exist.
+  - Kernel & LK = prebuilt MIUI bd54 (kernel diff vs MIUI stock boot.img is
+    only build-stamp, date, sensor config — KPOC logic identical). LK has
+    the full KPOC path (`mt65xx_bat_init`, `check_bat_protect_status`,
     `< Kernel Power Off Charging Detection Ok>`).
-  - **Gate-nya = LK env `off-mode-charge`**: node `/proc/lk_env` di kernel
-    (driver MTK `sysenv`, backing store = partisi `para` = `mmcblk0p2`).
-    Default `off-mode-charge=1` → LK merutekan boot charger masuk jalur
-    KPOC, yang crash di build ini (crash di fase KPOC antara LK jump dan
-    USB gadget init — tidak terverifikasi lebih detail karena log ikut
-    ter-reset; tidak diselidiki lebih lanjut karena bypass menyelesaikan
-    kasus penggunaan).
-  - Meng-test boot.img MIUI stock tidak membantu memvalidasi (stuck logo
-    juga) karena userdata sudah milik LOS (e4crypt) — boot ROM lain pasti
-    gagal mount data.
+  - **The gate is the LK env var `off-mode-charge`**: exposed by the
+    `/proc/lk_env` node in the kernel (MTK `sysenv` driver, backing store =
+    the `para` partition = `mmcblk0p2`). Default `off-mode-charge=1` routes
+    charger boots into the KPOC path, which crash-loops in this build
+    (crash happens between the LK jump and USB gadget init — not verified
+    in detail because the logs get reset each cycle; not investigated
+    further since bypassing it solves the use case).
+  - Testing the stock MIUI boot.img does not validate anything (it also
+    loops) because userdata already belongs to LOS (e4crypt) — a boot of a
+    different ROM always fails to mount the data partition.
 - **Fix** (root adb):
   ```
   echo "off-mode-charge=0" > /proc/lk_env
   ```
-- **Efek**: saat HP mati + charger → HP **boot normal ke Android** (charger
-  tetap bekerja, indikator baterai via UI Android; animasi KPOC awal tidak
-  ada — trade-off yang diterima).
-- **Verifikasi**: `poweroff` → colok USB PC → boot ke home screen OK;
-  `/proc/lk_env` = `off-mode-charge=0`; partisi `para` berisi
-  `ENV_v1 off-mode-charge=0` → **persisten** (survive reboot & power cycle).
-  Setting tersimpan di partisi, bukan per-flash — tidak perlu repatch setiap
-  ROM. (Tetap tersimpan walau ganti boot.img karena partisi para tidak di-
-  sentuh oleh flash normal.)
+- **Effect**: charger plugged while off → the phone **boots normally into
+  Android** (charging still works, battery indicator via the Android UI;
+  no KPOC animation at boot — accepted trade-off).
+- **Verification**: `poweroff` → plug PC USB → boots to home screen OK;
+  `/proc/lk_env` = `off-mode-charge=0`; the `para` partition contains
+  `ENV_v1 off-mode-charge=0` → **persistent** (survives reboot and power
+  cycle). The setting lives in a partition, not in a flash — it does not
+  need to be re-applied per ROM and is untouched by normal flashing.
+  **Note for a fresh flash**: a brand-new install still has
+  `off-mode-charge=1`, so the echo above must be run once (a build-time
+  permanent fix could write this via an init service).
 
 ### 8. Voice calls crash the C2K modem (MD3) — known, community-wide
 
