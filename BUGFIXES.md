@@ -331,6 +331,52 @@ front 1280x960: RGB (115,115,109), neutral
 Shipped in `vendor/xiaomi/nikel/system/lib{,64}/libcameracustom.so`
 (commit `b2663f3`).
 
+**2026-09-19 follow-up — night/low-light cast (ACCEPTED as limitation):**
+
+Rear photos are still noticeably green at night / low indoor light
+(measured `G*2/(R+B)` on a white wall: rear 1.68 vs front 1.02 under the
+same lamp). Findings, so nobody repeats the work:
+
+- **Why the front is neutral**: `libcameracustom.so` exports
+  `getAWBParam2_s5k5e8yx()` which reads the front sensor's per-unit AWB
+  OTP (dmesg: `s5k5e8 otp group1 awb_flag = 0x01`, unit gains ≈ golden
+  gains). The rear has no calibration path at all: there is no
+  `getAWBParam2_s5k3l8*`, the bd54 kernel s5k3l8 driver has no OTP read
+  (only `module_id_ofilm=7`), and all camera NVRAM LIDs
+  (`CAMERA_Para`, `CAMERA_3A`, `CAMERA_SENSOR`, `CAMERA_SHADING*`,
+  `CAMERA_PLINE*`) are at version `000` in the FILE_VER table = never
+  written — no per-unit calibration exists anywhere on this unit.
+- **Raw nvram partition (p18)** still contains the factory camera-LID
+  name table, but the `/data/nvram/APCFG` mirror never had camera LID
+  files; the daemon table (`AllMap`) lists 936 LIDs, none of them
+  camera. Flashing stock MIUI adds nothing — the blobs are identical.
+- **Night profile matrix** (same wall, no flash, all 9 constructors
+  available in `libcam.metadataprovider.so` were tested by bind-mounting
+  a patched `libcameracustom.so` with a same-length drvname remap):
+
+  | rear profile | night G*2/(R+B) | max resolution |
+  |---|---|---|
+  | **IMX258 (shipped)** | **1.68** | 13 MP 4160x3120 |
+  | S5K5E2YA | 1.54 | 3072x1728 only (5 MP metadata caps scaler) |
+  | S5K3P3SX | 1.78 | 13 MP |
+  | IMX230 | 1.78 | |
+  | IMX214 / S5K2X8 | 1.80 | |
+  | S5K3M2 | 1.92 | |
+  | IMX377 | 2.18 | |
+  | OV23850 | camera fails to open | |
+
+  Test artifacts: `nikelbuild/cam_green_night/` (test libs, sample
+  photos, nvram p18 dump, FILE_VER/AllMap, s5k3l8 driver sources from
+  begonia/mt6761/Hikari trees).
+
+- **Decision**: keep IMX258 (best night of all full-res profiles, best
+  daylight). Further options if someone picks this up: binary-tweak the
+  IMX258 AWB/CCM tables for high-gain conditions, or implement an
+  S5K3L8 OTP/EEPROM AWB reader (kernel driver + HAL `getAWBParam2`
+  shim). The module EEPROM is on I2C 0xa0; the PDAF block is at
+  0x0763/1404 B per the public W1540 driver; the AWB block layout was
+  not found in public sources.
+
 ---
 
 ## NOT FIXED
