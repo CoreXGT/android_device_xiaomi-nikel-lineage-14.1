@@ -41,24 +41,28 @@ repo init -u git://github.com/LineageOS/android.git -b cm-14.1
 repo sync
 
 # Device tree and vendor blobs
+cd rom_source
 git clone https://github.com/CoreXGT/android_device_xiaomi-nikel-lineage-14.1.git -b master device/xiaomi/nikel
 git clone https://github.com/CoreXGT/android_vendor_xiaomi_nikel.git -b master vendor/xiaomi/nikel
 
 # Apply out-of-tree patches (netd, frameworks/opt/net/wifi, etc.)
 cd device/xiaomi/nikel/patches && . apply.sh && cd -
 
-# Build
 source build/envsetup.sh
-breakfast nikel
-
 # Jack server heap — REQUIRED on 8 GB machines (framework dex OOMs otherwise).
 # The build launches/restarts the Jack server from this env var
 # (see prebuilts/sdk/tools/jack_server_setup.mk).
 export ANDROID_JACK_VM_ARGS="-Dfile.encoding=UTF-8 -XX:+TieredCompilation -Xmx6144m"
-
 export LC_ALL=C
-export TMPDIR=<big tmp dir>
+export TMPDIR=<tmp dir>
 export CCACHE_DIR=<cache dir>
+
+# Build
+breakfast nikel
+
+# or
+
+# Build otapackage only
 export MAKEFLAGS="-j4"
 make otapackage -j4
 ```
@@ -96,6 +100,7 @@ make otapackage -j4
 | ADB on boot | ✅ Fixed | BUGFIXES.md #7 |
 | Camera (rear) | ✅ Fixed | photo + video, BUGFIXES.md #0 and #10 |
 | Camera (front) | ✅ Fixed | photo, BUGFIXES.md #12 (bd54 kernel + kdSensorList swap, shipped in `prebuilt/kernel`) |
+| Off-charge (charge while powered off) | ✅ Fixed | boots to Android when charger is plugged while off (no KPOC animation), BUGFIXES.md #14 — `off-mode-charge=0` in `para` partition |
 | Voice calls | ❌ Broken | MD3 speech crash, known issue, BUGFIXES.md #8 |
 | Fingerprint scanner | ✅ Fixed | Goodix + Kinibi TEE port, BUGFIXES.md #10b/#10b-c |
 | FM radio | Not verified | |

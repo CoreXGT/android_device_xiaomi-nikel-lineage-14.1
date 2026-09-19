@@ -25,7 +25,12 @@ Bug diagnostics use these code paths repeatedly:
 | 7 | Misc build/boot fixes | ✅ FIXED | #7 |
 | 10 | Video recording fails | ✅ FIXED | #10 |
 | 12 | **Front camera never enumerated** | ✅ **FIXED** | #12 |
+| 14 | **Off-charge bootloop (logo MI berulang)** | ✅ **FIXED (2026-09-19)** | #14 |
 | 8 | Voice calls crash C2K modem (MD3) | ❌ NOT FIXED (community-wide) | #8 |
+| 15 | Rear camera green cast at night | ✅ FIXED (2026-09-14) | #13 |
+| 16 | AudioFx has stopped | ❌ NOT FIXED | — |
+| 17 | SMS (Messaging) app crashes on open | ❌ NOT FIXED | — |
+| 18 | AOSP Browser crashes on open | ❌ NOT FIXED | — |
 | 10b | Fingerprint scanner | ❌ NOT FIXED | #10b |
 | 11 | Hotspot 5 GHz DFS channels | ⚠️ minor open | #11 |
 
@@ -334,6 +339,49 @@ Note: sections #9 and #9b below are the HISTORICAL investigation trail
 of the front camera, which is now FIXED (see #12). They stay here only
 so nobody re-discovers the same dead ends.
 
+### 14. Off-charge bootloop (logo MI berulang saat dicolok charger saat HP mati) — FIXED (2026-09-19)
+
+- **Symptom**: HP matikan lalu dicolok charger (dinding maupun PC) → tidak
+  ada indikator charging, HP loop logo MI berulang-ulang, tidak pernah boot
+  ke home screen.
+- **Diagnosis** (tooling: `lsusb` polling USB VID/PID):
+  - Loop terukur ~18 detik/cycle: preloader `0e8d:2000` (~3 s) → LK + logo
+    `0e8d:2008` (~15 s) → WDT reset. **Kernel tidak pernah jalan** (adbd
+    tidak pernah muncul; `last_kmsg` hanya header ram_console karena tiap
+    reset preloader membersihkannya, `printk.disable_uart=1` = tanpa UART).
+  - Semua komponen KPOC (kernel power off charging) lengkap di ROM:
+    `init.mt6797.rc` `on charger` → mount system + `start fuelgauged` +
+    `start kpoc_charger` (+ adb), binary `/system/bin/kpoc_charger`
+    (26 KB, dari MIUI blob) + `/sbin/healthd` + semua lib (`libshowlogo`,
+    `libgui`, `libui`, `libhardware_legacy`, `libsuspend`) ada.
+  - Kernel & LK = prebuilt MIUI bd54 (kernel diff vs MIUI stock boot.img
+    hanya build-stamp, tanggal, sensor config — KPOC logic identik).
+    LK string KPOC lengkap (`mt65xx_bat_init`, `check_bat_protect_status`,
+    `< Kernel Power Off Charging Detection Ok>`).
+  - **Gate-nya = LK env `off-mode-charge`**: node `/proc/lk_env` di kernel
+    (driver MTK `sysenv`, backing store = partisi `para` = `mmcblk0p2`).
+    Default `off-mode-charge=1` → LK merutekan boot charger masuk jalur
+    KPOC, yang crash di build ini (crash di fase KPOC antara LK jump dan
+    USB gadget init — tidak terverifikasi lebih detail karena log ikut
+    ter-reset; tidak diselidiki lebih lanjut karena bypass menyelesaikan
+    kasus penggunaan).
+  - Meng-test boot.img MIUI stock tidak membantu memvalidasi (stuck logo
+    juga) karena userdata sudah milik LOS (e4crypt) — boot ROM lain pasti
+    gagal mount data.
+- **Fix** (root adb):
+  ```
+  echo "off-mode-charge=0" > /proc/lk_env
+  ```
+- **Efek**: saat HP mati + charger → HP **boot normal ke Android** (charger
+  tetap bekerja, indikator baterai via UI Android; animasi KPOC awal tidak
+  ada — trade-off yang diterima).
+- **Verifikasi**: `poweroff` → colok USB PC → boot ke home screen OK;
+  `/proc/lk_env` = `off-mode-charge=0`; partisi `para` berisi
+  `ENV_v1 off-mode-charge=0` → **persisten** (survive reboot & power cycle).
+  Setting tersimpan di partisi, bukan per-flash — tidak perlu repatch setiap
+  ROM. (Tetap tersimpan walau ganti boot.img karena partisi para tidak di-
+  sentuh oleh flash normal.)
+
 ### 8. Voice calls crash the C2K modem (MD3) — known, community-wide
 
 - **Symptom**: MO call: `ATD` accepted (OK) then `+ECPI 130` release ~1.4 s
@@ -351,6 +399,53 @@ so nobody re-discovers the same dead ends.
   - Modem firmware: original / hellas arΩma / official V10.2.1.0 — all crash.
   - 2G-only mode still crashes → not CSFB related.
   - Single-SIM and dual-SIM both crash.
+  - 2026-09-15 deep dive — new dead ends (logs in `nikelbuild/radio_*_test.log`, `miui_radio.log`, `getprop_los_2g.txt`):
+    - `EVADSMOD` not the trigger: LOS now `IMS: AT+EVADSMOD=1 Fail !!` + `+CME ERROR: 100` identical to MIUI (`miui_radio.log:39422`), yet MO still `+ECPI: 1,130` → `RADIO_UNAVAILABLE` (`radio_2g_call2.log:237`, `21:22:34` after patch). `setprop persist.mtk.*` does not suppress init.
+    - `AT+CMUT=0` → `ERROR`/`GENERIC_FAILURE` on both ROMs — not a differentiator.
+    - `ATD` format `ATD=xxx` in MIUI is redaction only (0 raw numbers in 48698 lines); LOS `ATD+628…;` vs `ATD0823…;` both crash, format irrelevant. Blob only has `ATD%s%s;`/`ATDE%s%s;` (`0x897c8`/`0x89790`).
+    - `EVOCD`/`+EVOCD:6` + `UNSOL 3052` identical both sides.
+    - IMS init suppression via 1-byte blob patch `AT+E`→`AT+X` (10 strings: `ECSRA=1`×2 + `EIMS*`×8, `/tmp/md3off/*_mtk-ril.so.patched` md5 `2d2e…`/`d536…`, verified 0 `ECSRA`/`EIMS` in radio after push via recovery) — still `ECPI 130` MO `21:22:34.972` → `RADIO_UNAVAILABLE 21:22:35.465`. Init not the gate.
+    - MD3 boot disable (`init.modem.rc:149,156` `ccci3_fsd`/`ccci3_mdinit` → `disabled`, boot `9785344` B) — MD1 asserts `cc_irq.c:1022` `ee=23f` ASSERT at boot (`dmesg 72.330*`), SMEM mdipc requires MD3. Reverted via `boot_backup_20260915.img` (16 MiB, `mmcblk0p21`).
+    - AP→MD3 speech path block `chmod 000 /dev/ccci3_aud` (audioserver single fd `ccci_aud` only) — still `ee=a3f` `ccci3/ken MD exception timer 2` at `730–731s` MO, `2474s` MT + `voice_trigger 1→0→1` before. Crash is modem-internal MD1→MD3 SMEM type 19 broadcast, not AP device.
+    - Slot-independent: MO via `SUB1`/`RIL_SOCKET_2` (`DIAL [SUB1]` `20:52:16.930`) same `ECPI 130` `20:52:16.948` → `RADIO_UNAVAILABLE 20:52:17.331` as `SUB0`. MIUI success was `SUB1` but LOS fails both slots.
+- **2026-09-15 malam — BREAKTHROUGH: EX record MD3 ter-decode penuh** (artefak: `ccci_dump3.txt`, `dmesg_call_full3.txt`, `md3_exrec.bin` di `nikelbuild/`; `md3_exrec.bin` = parse blok "Dump MD EX log" `Base: ffffffc0b8299beb`):
+  - Data diambil dari `/proc/ccci_dump` (buffer CCCI NORMAL yang tidak tercetak console karena `ccci_debug_enable` default 4; set `echo 6 > /sys/kernel/ccci/debug` untuk semua print / 5 untuk detail-EE saja tanpa noise).
+  - Record: `ex_type=15 LTE_EXP`, **file = `mon/monfatalerror.c`**, **ExStr = `Ex Enter` + `Exception Nested Happened! \r\n`**, `Hisr65`, PC/LR MD3 = `0x00106A85`/`0x00106A84`, param `Ex D 0x204 / 0xD1`.
+  - String `mon/monfatalerror.c` + `Exception Nested Happened!` hanya ada di **MD3 firmware `modem_3_3g_n.img` @file 0x3119e0** (bukan MD1) → EE ini milik monitor MD3 sendiri.
+  - **Nested** = EE MD3 masuk untuk ke-2x; record pertama (penyebab asli speech) tertimpa. PC/LR 0x106A84 = loop mailbox-read monitor MD3 (`bl 0x1063ac` read 12-byte, msg `[0]='Y' [9]=8 [4]=1`).
+  - **Mapping MD3: runtime addr = file offset − 0x200** (dibuktikan dump `Base: ffffff80045fc000` isi "MMM\0..." = file 0x200). Semua disasm di atas runtime; literal pools: `monfatalerror` ref @runtime 0x1066be/0x106cae (pool 0x1066d4/0x106cc0), `Ex Enter` @0x1066ea (pool 0x106a1c), `Nested` @0x106726 (pool 0x106a30).
+  - Fungsi teridentifikasi (runtime): mailbox read = `0x1063ac` (inner `0x989f4`), monitor main loop = `0x106870`–`0x10699a` (msg `[0]='Y'`, len filter `[9]`∈{8,11}, `[4]`/`[8]`==1), EX record builder = `0x1067c0`–`0x106810` (`strb type 5/15` ke `[r4+0x10]`, copy ke `[r4+0xfc..0x138]`), log helper = `0x106248` (args r0=level, r2=str, r3=len).
+  - **Kesimpulan baru**: bukan MD1 broadcast type-19 yang langsung mematikan — MD3 monitor sendiri masuk EE **nested** saat speech path on; exception ASLI (instance pertama) tidak ter-record. Lapisan speech handler MD3 masih harus dipetakan.
+- **2026-09-15 lanjut — tooling + patch diagnostik MD3** (backup firmware: `/tmp/md3off/modem_3_3g_n.img.orig` md5 `bfe0d82a183724a1387cec901e7aecc8`):
+  - Disassembler pool-aware dibuat (`/tmp/md3off/md3dis.py`): thumb16 `ldr rX,[pc,#imm]` literal scan + anotasi string rodata. EE entry MD3 = runtime `0x1066e8` (file `0x1068e8`): print `Ex Enter` → cek EE counter `[0x69dffc]` (`0xff`=fresh, `+1==1`=fresh, lain=nested → print `Exception Nested Happened!`, copy task context `[0x5903c0]` ke record, **`b self` hang**).
+  - `ee=a3f` vs `a3d`: bit1 `MD_EE_DUMP_ON_GOING` — lama hang (dump on-going), baru setelah patch tidak hang.
+  - **Patch diagnostik `nested2fresh`**: file `0x106924` `1ad0`→`1ae0` (`beq fresh`→`b fresh`, nested path selalu jalan fresh, tidak hang). md5 `49c57753808dfeb7edb48a0e44658832`. Flash via TWRP (`/system/etc/firmware/modem_3_3g_n.img`).
+  - **Hasil tes MO**: `ee=a3d` (tidak hang), tapi record TETAP `LTE_EXP` + file `mon/monfatalerror.c` + code1/2 `"mon/monf"` → file/code ini **hardcoded identitas handler EE MD3**, BUKAN info fault asli. Instance SWINT pertama tidak pernah membawa file/line ke AP; context fault asli hanya ada di EE dump internal MD3 (butuh mdlogger/DHL yang tidak ada di LOS).
+  - Paket CCIF pertama sebelum EE: `Q0 Rx msg 0 24 80000006 0` (36 byte, MD3→AP "Ex Enter") 110 ms setelah speech alloc; `Q0 Rx 80000006` dari MD1 kemungkinan pesan speech type-19 pemicu.
+  - **2026-09-15 malam 2 — reverse lanjutan MD3 speech path** (checkpoint, belum ketemu handler tepat):
+    - `Q0 Rx 80000006` = paket CCIF MD3→AP berisi notif EE ("Ex Enter", 36 byte) — EFEK crash, bukan pemicu. Pesan speech MD1→MD3 via SMEM `0x8e200000` antar-modem, tak terlihat di AP.
+    - Konstanta `0x80000006` literal MD3 @file `0x2391ad/0x309a21` (bukan pool code).
+    - Peta speech MD3: task `SpeechReadMsg`/`SpeechWriteMsg`, queue `S2_SPEECH`, `SPC2K_UL_GetSpeechFrame`, `SvcSendSpeechConnMsg`, `mdSpeechLoopBackModeMsgProc`; module `mdipc/` (cc_irq_msg_v2/v2, cc_sys_comm_v2, cc_irq_spinlock) + `hwd/hwd_speech/` (hwdsph/hwdvm/hwdaudioservice). Code mdipc runtime ~`0x100200`–`0x101000` (init `0x100448`: alloc 4 group `bl 0xff198`, `bl 0x1008bc/0x100f74/0x1013b4`, register msg `0x10deb8`).
+    - Tooling: `/tmp/md3off/md3dis.py` (pool-aware thumb16 disasm + string anotasi; thumb32 `ldr.w` scanner kosong — pool MD3 dicampur data, butuh Ghidra/IDA untuk lanjut).
+    - Faktor mempermudah patch: MD3 C2K nikel = data-only (speech GSM selalu MD1) → NO-OP handler speech MD3 praktis aman, tapi fungsi handler belum teridentifikasi.
+  - **2026-09-16 — patch `eeoff` (MD3 EE entry → `bx lr`)**: runtime `0x1066e8` (file `0x1068e8`) `b5f0...`→`4770 bf00`, md5 `9207f7cc9124fae10f4985a40ef51f8c`. **GAGAL**: MD3 masih kirim EX (`ee=a3d` @158s, voice_trigger→110ms) — paket EX dikirim state machine CCIF MD3 **sebelum** call EE entry (EE entry hanya build record). Salinan kedua pool `0x106cc0` = fungsi log biasa, bukan EE entry. Firmware **revert** ke original. Dengan begitu semua patch AP-side & MD3-side berbasis paket/EE gagal; tersisa: patch MD1 speech broadcast type-19 (reverse modem_1_ulwctg_n.img 15.8 MB) atau kernel reset-policy — keduanya besar.
+  - **Firmware di-revert** ke original `bfe0d82a...` (baseline bersih). `nested2fresh` tidak diadopsi.
+  - **2026-09-17 — tes MOLY Vernee W1539 (madOS Apollo Lite) di MD1 nikel — GAGAL + NVRAM kena**:
+    - MD firmware modem nikel sebenarnya di **partisi**: `md1img`=`mmcblk0p12` (24MB, W1603.P90), `md1dsp`=p13 (4MB), `md1arm7`=p14, `md3img`=p15 (5MB) — `/system/etc/firmware/*` hanya fallback (patch firmware via /system kemarin TIDAK pernah berdampak; perubahan ee a3f→a3d = timing race, bukan efek patch).
+    - Backup partisi sebelum tes: `/sdcard/md1img_backup.img` (24MB, md5 `bfd11123`), `/sdcard/md1dsp_backup.img` (4MB, `69acba4b`); NVRAM backup `/sdcard/nvram_md_backup.tgz` (93KB).
+    - Flash Vernee `modem_1` W1539.V27 (madOS zip, 15.3MB) + `dsp_1` ke partisi → boot loop (`md1 bootup/reset_start`, `NOT_READY`), MOLY Vernee inkompatibel nikel (X20 vs X20M calib/config).
+    - Restore p12+p13 dari backup → partisi asli kembali (`bfd11123`/`69acba4b`), md1/md3 ready.
+    - **SISA DAMPAK**: NVRAM `/data/nvram/md/NVRAM` tersentuh firmware Vernee (`SWCHANGE` di-update Vernee, `NVD_DATA` timestamps 2026-09-14/16). `SWCHANGE*` dihapus; `NVD_DATA` di-wipe biar regenerate → SIM flapping `READY↔NOT_READY` + `wait to reset` loop di kedua SIM, kambuh-kambuhan. Belum pulih 100% — perlu cold power off (baterai dicabut 10s) + tunggu NVRAM regenerate. Tidak boleh flash firmware modem asing lagi; MD3 partisi p15 saat ini = copy `md3rom.img.orig` (`bfe0d82a`) yang dulu normal (sinyal OK, call tetap crash).
+  - **2026-09-17 malam — PULIH TOTAL via fastboot stock MIUI V10.2.1.0** (`/run/media/corex/System/ROM-nikel/nikel_global_images_V10.2.1.0.MBFMIXM_20190123.0000.00_6.0_global/images/`):
+    - Penyebab flapping terverifikasi: partisi `md3img` (p15) berisi copy `/system` (beda versi, head `b4 45 3e 00` size `0x3e45b4` vs file `0x3e1a04`) + NVRAM sisa Vernee → MD1 hang (`AT+CGREG?` no response), WDT reset loop (`wait to reset`).
+    - Fix: **fastboot flash modem partisi langsung** — `fastboot flash md1img images/md1rom.img && fastboot flash md1dsp images/md1dsp.img && fastboot flash md1arm7 images/md1arm7.img && fastboot flash md3img images/md3rom.img` (stock `flash_all.sh` MIUI memang flash modem via fastboot — tidak perlu SP Flash Tool/scatter untuk partisi modem). Bootloader unlocked → OKAY semua.
+    - Stock `md3rom.img` head `b4 45 3e 00` = **identik header partisi asli** (md5 `cadc0922`, size `0x3e5610`) — sumber md3rom asli ketemu di MIUI fastboot ROM.
+    - **Hasil: sinyal pulih penuh** (`READY,READY`, md1+md3 ready, TELKOMSEL+3, baseband W1603.P90) — TANPA format NVRAM, IMEI utuh, file `NVD_IMEI/MP0B_001` tidak tersentuh.
+    - Pelajaran: recovery zip MIUI ≠ full stock; yang memperbaiki modem = **fastboot ROM** (berisi `md1rom/md1dsp/md1arm7/md3rom/preloader` + scatter). NVRAM campur firmware asing pulih dengan re-flash modem stock tanpa wipe.
+- **Jalur fix yang terbuka (belum dikerjakan)**: patch firmware MD3 `modem_3_3g_n.img` (file di `/system/etc/firmware`, flashable via TWRP):
+  1. Reverse handler pesan speech MD3 (penerima SMEM MD1↔MD3 type-19 / pesan mailbox `[9]=8/[9]=11`) → NO-OP atau swallow.
+  2. Atau patch nested-EE guard supaya instance pertama tidak tertimpa (dapat file/line assert asli).
+  - Tooling berikutnya: disassembler pool-aware per fungsi (entrypoints 0x1063ac/0x106248/0x1067c0), scan `ldr rX,[pc,#imm]` literal 16-bit (script sudah jadi, hasil 4 ref di atas).
 - **Conclusion**: kernel/modem-era speech subsystem incompatibility (M-gen
   firmware + N-gen AP stack). Only M-gen (Android 6) stacks work.
 - **Status**: not fixable from /system without kernel source + modem research
