@@ -492,8 +492,13 @@ so nobody re-discovers the same dead ends.
   shows 0.
 - **Fix** (`vendor/cmsdk`, NetworkTraffic.java): when both TrafficStats
   deltas are zero, fall back to summing the per-interface counters from
-  `/proc/net/dev` (skipping `lo`). Rebuilt `org.cyanogenmod.platform`
-  (`make org.cyanogenmod.platform`) and flashed the new jar via TWRP.
+  `/proc/net/dev` (skipping `lo`).
+- **Deployment gotcha**: replacing `org.cyanogenmod.platform.jar` is NOT
+  enough — SystemUI statically links the cmsdk
+  (`Lorg/cyanogenmod/internal/statusbar/NetworkTraffic;` lives inside
+  SystemUI.apk's classes.dex). Rebuild SystemUI itself
+  (`make SystemUI`, picks up the patched cmsdk) and flash the new
+  SystemUI.apk via TWRP.
 
 ### 8. Voice calls crash the C2K modem (MD3) — known, community-wide
 
