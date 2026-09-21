@@ -28,9 +28,9 @@ Bug diagnostics use these code paths repeatedly:
 | 14 | **Off-charge bootloop (MI logo repeats when charging while off)** | ✅ **FIXED (2026-09-19)** | #14 |
 | 8 | Voice calls crash C2K modem (MD3) | ❌ NOT FIXED (community-wide) | #8 |
 | 13 | Rear camera green cast at night / low light | ✅ FIXED (2026-09-14) | #13 |
-| 15 | AudioFx has stopped (frequent, especially while ringing) | ❌ NOT FIXED | — |
-| 16 | SMS (Messaging) app crashes when opening a message | ❌ NOT FIXED | — |
-| 17 | AOSP Browser crashes on open (Firefox works) | ❌ NOT FIXED | — |
+| 15 | AudioFx has stopped (frequent, especially while ringing) | ✅ FIXED (2026-09-21) | #15 |
+| 16 | SMS (Messaging) app crashes when opening a message | ✅ FIXED (2026-09-21) | #16 |
+| 17 | AOSP Browser crashes on open (Firefox works) | ✅ FIXED (2026-09-21) | #17 |
 | 10b | Fingerprint scanner | ❌ NOT FIXED | #10b |
 | 11 | Hotspot 5 GHz DFS channels | ⚠️ minor open | #11 |
 
@@ -429,6 +429,55 @@ so nobody re-discovers the same dead ends.
   **Note for a fresh flash**: a brand-new install still has
   `off-mode-charge=1`, so the echo above must be run once (a build-time
   permanent fix could write this via an init service).
+
+### 15. AudioFx has stopped (crashes when sounds play) — FIXED (2026-09-21)
+
+- **Symptom**: "AudioFx has stopped" appears frequently, especially when a
+  ringtone / notification / any audio session starts.
+- **Root cause**: `AudioFxService.onCreate()` calls
+  `DevicePreferenceManager.initDefaults()`, which fails on this device with
+  `AudioEffect: set/get parameter error` (the MTK audio effects HAL does not
+  implement the standard `Equalizer` effect commands). `onCreate()` then
+  `stopSelf()`s **without ever creating `mSessionManager`**, but audio
+  session broadcasts keep arriving and `onStartCommand()` dereferenced the
+  null manager → `NullPointerException` on every sound.
+- **Fix** (`packages/apps/AudioFX`, commit `5f3adde`): guard
+  `onStartCommand()` — if `mSessionManager == null` return `START_STICKY`
+  instead of crashing. Side effect (accepted): AudioFX effects cannot work
+  on this device until the MTK effects HAL implements the standard
+  Equalizer; the app just no longer crashes.
+- **Rebuild**: `source build/envsetup.sh && breakfast nikel && make AudioFX`
+  on the build VM (jack needed `-Xmx6144m`; default 8 GB VM OOM'd at the
+  default settings — also set `jack.server.max-service=4` in
+  `~/.jack-server/config.properties`). New APK flashed to
+  `/system/priv-app/AudioFX/AudioFX.apk` via TWRP zip
+  (`nikelbuild/audiofx_nikel_fix.zip`).
+
+### 16. Messaging (SMS) crashes when opening a message — FIXED (2026-09-21)
+### 17. Jelly (AOSP browser) crashes on open — FIXED (2026-09-21)
+
+- **Symptom**: opening a message in Messaging → "messaging has stopped"
+  (list view was fine); opening Jelly browser → inflate exception. Both apps
+  crash with:
+  `android.webkit.WebViewFactory$MissingWebViewPackageException: Failed to
+  load WebView provider: No WebView installed`.
+- **Root cause**: `/system/app/webview/webview.apk` shipped in the build was
+  a **modern SDK-29 (Android 10) WebView** (the tree's
+  `external/chromium-webview/prebuilt/*` mirrors contain Chromium
+  100–119 imports, and `arm/` was even a 133-byte placeholder). PMS rejects
+  it at boot: `Requires newer sdk version #29 (current version is #25)` →
+  no WebView provider → any app touching WebView crashes (Messaging links
+  via `Linkify` → `WebView.findAddress`, Jelly inflates `WebViewExt`).
+- **Fix**: replace the webview prebuilt with the cm-14.1-compatible
+  `com.android.webview 60.0.3112.78` (platform 7.1.1, both arm+arm64 libs
+  inside — taken from the known-good SamarV ROM zip; LineageOS no longer
+  publishes the cm-14.1 webview prebuilt). Applied to the build tree
+  (`external/chromium-webview/prebuilt/{arm,arm64}/webview.apk`) and flashed
+  to the device via TWRP zip (`nikelbuild/webview_nikel_fix.zip`; note:
+  this device's TWRP update-binary does not know `set_perm`, so the
+  updater-script only mounts/extracts/unmounts). Verified:
+  `pm path com.android.webview` = 60.0.3112.78, Messaging and Jelly open
+  without crashes.
 
 ### 8. Voice calls crash the C2K modem (MD3) — known, community-wide
 
