@@ -479,6 +479,22 @@ so nobody re-discovers the same dead ends.
   `pm path com.android.webview` = 60.0.3112.78, Messaging and Jelly open
   without crashes.
 
+### 18. Status bar network speed indicator always shows 0 — FIXED (2026-09-22)
+
+- **Symptom**: the status bar traffic indicator (CM `NetworkTraffic`) shows
+  0 kbps for both directions; Data usage is also empty.
+- **Root cause**: the indicator reads
+  `TrafficStats.getTotalTx/RxBytes()`, whose native implementation parses
+  `/proc/net/xt_qtaguid/iface_stat_fmt`. On the MIUI bd54 kernel the
+  qtaguid per-uid/iface counters never accumulate (all zeros even with
+  active traffic, verified: `iface_stat_all` counts 360+ MB while
+  `iface_stat`/`iface_stat_fmt` stay 0), so everything reading qtaguid
+  shows 0.
+- **Fix** (`vendor/cmsdk`, NetworkTraffic.java): when both TrafficStats
+  deltas are zero, fall back to summing the per-interface counters from
+  `/proc/net/dev` (skipping `lo`). Rebuilt `org.cyanogenmod.platform`
+  (`make org.cyanogenmod.platform`) and flashed the new jar via TWRP.
+
 ### 8. Voice calls crash the C2K modem (MD3) — known, community-wide
 
 - **Symptom**: MO call: `ATD` accepted (OK) then `+ECPI 130` release ~1.4 s
