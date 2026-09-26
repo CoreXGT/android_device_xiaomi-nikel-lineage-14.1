@@ -57,14 +57,16 @@ export LC_ALL=C
 export TMPDIR=<tmp dir>
 export CCACHE_DIR=<cache dir>
 
+# --------------------------------------
 # Build
 breakfast nikel
 
 # or
 
-# Build otapackage only
+# Build otapackage only with 4 jobs
 export MAKEFLAGS="-j4"
 make otapackage -j4
+# --------------------------------------
 ```
 
 > The Jack server's `~/.jack-server/config.properties` tweaks (max-service,
