@@ -34,9 +34,15 @@ Note: the NetworkTraffic fix only takes effect through SystemUI
 the cm-14.1-compatible `com.android.webview 60.0.3112.78`
 (BUGFIXES.md #16/#17). The upstream prebuilt repo only contains
 modern SDK-29 builds which the package manager rejects on 7.1.
-Take the APK from any known-good nikel cm-14.1 ROM (e.g. SamarV,
-`system/app/webview/webview.apk`) — it contains both ABIs; copy the
-same file to `prebuilt/arm/` and `prebuilt/arm64/`.
+The correct APK is shipped here compressed:
+
+```
+7z x patches/webview.7z -o<tmp>          # md5 2021fea0adff94bffc9f9990b56077c6
+cp <tmp>/webview.apk external/chromium-webview/prebuilt/arm/webview.apk
+cp <tmp>/webview.apk external/chromium-webview/prebuilt/arm64/webview.apk
+```
+
+(it contains both ABIs — the same file goes to arm/ and arm64/)
 
 ## Index
 
