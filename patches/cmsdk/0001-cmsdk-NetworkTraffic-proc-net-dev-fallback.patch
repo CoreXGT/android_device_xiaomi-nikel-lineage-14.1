@@ -1,0 +1,123 @@
+From c1aece69f890e1b9031c7681d1e1b750a62e604f Mon Sep 17 00:00:00 2001
+From: CoreXGT <aulia.ikbal09@gmail.com>
+Date: Tue, 22 Sep 2026 00:35:04 +0700
+Subject: [PATCH] NetworkTraffic: fall back to /proc/net/dev when qtaguid stats
+ are zero
+
+Some kernels (MIUI bd54 used by nikel) expose xt_qtaguid stats
+nodes but never accumulate per-uid/iface counters, so
+TrafficStats.getTotalTx/RxBytes() always returns 0 and the status
+bar traffic indicator shows 0 kbps. If both deltas are zero, read
+the real counters from /proc/net/dev (skip lo).
+
+Change-Id: If454d9c57cb320a353c5805a41e75cc6af6d99cb
+---
+ .../internal/statusbar/NetworkTraffic.java    | 71 +++++++++++++++++++
+ 1 file changed, 71 insertions(+)
+
+diff --git a/sdk/src/java/org/cyanogenmod/internal/statusbar/NetworkTraffic.java b/sdk/src/java/org/cyanogenmod/internal/statusbar/NetworkTraffic.java
+index 43d592f..37e74cd 100644
+--- a/sdk/src/java/org/cyanogenmod/internal/statusbar/NetworkTraffic.java
++++ b/sdk/src/java/org/cyanogenmod/internal/statusbar/NetworkTraffic.java
+@@ -40,6 +40,10 @@ import android.util.TypedValue;
+ import android.view.View;
+ import android.widget.TextView;
+ 
++import java.io.BufferedReader;
++import java.io.FileReader;
++import java.io.IOException;
++
+ import cyanogenmod.providers.CMSettings;
+ 
+ import org.cyanogenmod.platform.internal.R;
+@@ -74,6 +78,8 @@ public class NetworkTraffic extends TextView {
+     private long mRxKbps;
+     private long mLastTxBytesTotal;
+     private long mLastRxBytesTotal;
++    private long mLastDevTxTotal;
++    private long mLastDevRxTotal;
+     private long mLastUpdateTime;
+     private int mTextSizeSingle;
+     private int mTextSizeMulti;
+@@ -147,6 +153,29 @@ public class NetworkTraffic extends TextView {
+                 mLastUpdateTime = now;
+                 long txBytes = TrafficStats.getTotalTxBytes() - mLastTxBytesTotal;
+                 long rxBytes = TrafficStats.getTotalRxBytes() - mLastRxBytesTotal;
++                if (txBytes < 0) {
++                    txBytes = 0;
++                }
++                if (rxBytes < 0) {
++                    rxBytes = 0;
++                }
++                if (txBytes == 0 && rxBytes == 0) {
++                    // ponytail: qtaguid per-iface stats are all-zero on this
++                    // device (MIUI bd54 kernel); fall back to /proc/net/dev
++                    long[] dev = readProcNetDev();
++                    long txNow = dev[0];
++                    long rxNow = dev[1];
++                    txBytes = txNow - mLastDevTxTotal;
++                    rxBytes = rxNow - mLastDevRxTotal;
++                    if (txBytes < 0) {
++                        txBytes = 0;
++                    }
++                    if (rxBytes < 0) {
++                        rxBytes = 0;
++                    }
++                    mLastDevTxTotal = txNow;
++                    mLastDevRxTotal = rxNow;
++                }
+                 mTxKbps = (long) (txBytes * 8f / (timeDelta / 1000f) / 1000f);
+                 mRxKbps = (long) (rxBytes * 8f / (timeDelta / 1000f) / 1000f);
+                 mLastTxBytesTotal += txBytes;
+@@ -330,6 +359,48 @@ public class NetworkTraffic extends TextView {
+         mTrafficHandler.removeMessages(MESSAGE_TYPE_UPDATE_VIEW);
+     }
+ 
++    /**
++     * Sums rx[1] and tx[1] byte counters from /proc/net/dev for every
++     * interface except lo (fallback when qtaguid stats are unavailable).
++     * Returns {txBytes, rxBytes}.
++     */
++    private static long[] readProcNetDev() {
++        long tx = 0, rx = 0;
++        BufferedReader br = null;
++        try {
++            br = new BufferedReader(new FileReader("/proc/net/dev"));
++            String line;
++            while ((line = br.readLine()) != null) {
++                int colon = line.indexOf(':');
++                if (colon <= 0) {
++                    continue;
++                }
++                final String iface = line.substring(0, colon).trim();
++                if (iface.equals("lo")) {
++                    continue;
++                }
++                final String[] nums = line.substring(colon + 1).trim().split("\\s+");
++                if (nums.length < 9) {
++                    continue;
++                }
++                try {
++                    rx += Long.parseLong(nums[0]);
++                    tx += Long.parseLong(nums[8]);
++                } catch (NumberFormatException ignored) {
++                }
++            }
++        } catch (IOException ignored) {
++        } finally {
++            if (br != null) {
++                try {
++                    br.close();
++                } catch (IOException ignored) {
++                }
++            }
++        }
++        return new long[]{tx, rx};
++    }
++
+     private void updateTrafficDrawable() {
+         final int drawableResId;
+         if (mMode == MODE_UPSTREAM_AND_DOWNSTREAM) {
+-- 
+2.53.0
+

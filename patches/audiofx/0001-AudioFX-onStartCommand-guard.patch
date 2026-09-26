@@ -1,0 +1,35 @@
+From 5f3adde5b8b1124a9ecee39247b22245206eb9fd Mon Sep 17 00:00:00 2001
+From: CoreXGT <aulia.ikbal09@gmail.com>
+Date: Mon, 21 Sep 2026 22:16:03 +0700
+Subject: [PATCH] AudioFx: guard onStartCommand when init failed
+
+DevicePreferenceManager.initDefaults() can fail on MTK devices whose
+audio effects HAL does not implement the standard Equalizer. onCreate()
+then stopSelf() without ever creating mSessionManager, but audio
+session broadcasts still arrive and crashed the service with an NPE on
+every ringtone/UI sound. Return early instead.
+
+Change-Id: I8510c93f48831d45752a8004dede2dd15b021c2b
+---
+ src/org/cyanogenmod/audiofx/service/AudioFxService.java | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/src/org/cyanogenmod/audiofx/service/AudioFxService.java b/src/org/cyanogenmod/audiofx/service/AudioFxService.java
+index 6d04660..edd55d7 100644
+--- a/src/org/cyanogenmod/audiofx/service/AudioFxService.java
++++ b/src/org/cyanogenmod/audiofx/service/AudioFxService.java
+@@ -159,6 +159,11 @@ public class AudioFxService extends Service
+ 
+     @Override
+     public int onStartCommand(Intent intent, int flags, int startId) {
++        if (mSessionManager == null) {
++            // onCreate bailed out early (initDefaults failed) — ignore audio
++            // session broadcasts instead of NPE-crashing on every sound.
++            return START_STICKY;
++        }
+         if (DEBUG) {
+             Log.i(TAG, "onStartCommand() called with " + "intent = [" + intent + "], flags = ["
+                     + flags + "], startId = [" + startId + "]");
+-- 
+2.53.0
+
