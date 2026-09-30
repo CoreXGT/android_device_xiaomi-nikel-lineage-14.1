@@ -27,6 +27,8 @@ Bug diagnostics use these code paths repeatedly:
 | 12 | **Front camera never enumerated** | ✅ **FIXED** | #12 |
 | 14 | **Off-charge bootloop (MI logo repeats when charging while off)** | ✅ **FIXED (2026-09-19)** | #14 |
 | 8 | Voice calls crash C2K modem (MD3) | ❌ NOT FIXED (community-wide) | #8 |
+| 8f | — #8 single-variable bisect: 6 axes cleared | ✅ documented | #8f |
+| 19 | 4 build-integrity defects found while chasing #8 (SELinux `mtkrild` domain, `md_log_config`, `audio_param/b6a`, CM14.1 `/data` incompatible with MIUI) | ❌ NOT FIXED | #19 |
 | 13 | Rear camera green cast at night / low light | ✅ FIXED (2026-09-14) | #13 |
 | 15 | AudioFx has stopped (frequent, especially while ringing) | ✅ FIXED (2026-09-21) | #15 |
 | 16 | SMS (Messaging) app crashes when opening a message | ✅ FIXED (2026-09-21) | #16 |
@@ -38,6 +40,13 @@ Note: older front-camera sections #9 / #9a–#9e / #9b record the
 investigation history; several of their interim conclusions were later
 proven WRONG and are superseded by #12. Read them only for "what was
 ruled out", not for the current status.
+
+**Read §8 before touching the call crash.** It carries an explicit
+"do not re-test these" list, and §8f extends it with a controlled
+single-variable bisect that cleared six more axes (kernel, IMS/VolTE props,
+35 telephony props, audio-param config, the `inotify` loop, SIM2 state).
+Section #10b-e is retained but its original "fixed" claim is **refuted** — see
+the status correction at the top of that section.
 
 ---
 
@@ -526,6 +535,37 @@ so nobody re-discovers the same dead ends.
     - MD3 boot disable (`init.modem.rc:149,156` `ccci3_fsd`/`ccci3_mdinit` → `disabled`, boot `9785344` B) — MD1 asserts `cc_irq.c:1022` `ee=23f` ASSERT at boot (`dmesg 72.330*`), SMEM mdipc requires MD3. Reverted via `boot_backup_20260915.img` (16 MiB, `mmcblk0p21`).
     - AP→MD3 speech path block `chmod 000 /dev/ccci3_aud` (audioserver single fd `ccci_aud` only) — still `ee=a3f` `ccci3/ken MD exception timer 2` at `730–731s` MO, `2474s` MT + `voice_trigger 1→0→1` before. Crash is modem-internal MD1→MD3 SMEM type 19 broadcast, not AP device.
     - Slot-independent: MO via `SUB1`/`RIL_SOCKET_2` (`DIAL [SUB1]` `20:52:16.930`) same `ECPI 130` `20:52:16.948` → `RADIO_UNAVAILABLE 20:52:17.331` as `SUB0`. MIUI success was `SUB1` but LOS fails both slots.
+- **2026-09-30 — single-variable A/B bisect (see §8f). ADD to the do-not-re-test list:**
+  - **Kernel** — LOS kernel + MIUI ramdisk + MIUI `/system` = **no crash**. The
+    kernel is not the cause. (`tmp_miuidiff/x/testC_boot_LOSkernel_MIUIrd.img`)
+  - **IMS / VoLTE props** — MIUI with `ro.mtk_ims_support=1` deleted = **no
+    crash**. That prop is provably the switch that enables the C2K/ECCVI speech
+    negotiation (1 line in MIUI, 105 with the prop removed, same as LOS) — and
+    the negotiation runs to completion (`Ack done`) without crashing. So
+    `CheckSpeechParamAckAllArrival() Fail` is normal on *both* ROMs.
+  - **35 telephony props** (incl. `ril.first.md=1`, `ro.mtk_mobile_management=1`,
+    `ro.mtk_antibricking_level=2`, `ro.mtk_perf_simple_start_win=1`) on the LOS
+    system = **still crashes**. See §10b-e — that entry's "fix" is refuted.
+  - **Audio param config** — `libaudio_param_parser.so` swapped for MIUI's
+    (32+64 bit) **plus** the missing `etc/audio_param/b6a/` tree (61 XMLs)
+    = **still crashes**. (`DT_NEEDED` identical, only new symbol `atoi`.)
+  - **SIM2 state** — SIM2 forced to register properly (`mServiceState=0`,
+    `EmergOnly=false`, PLMN 51021) = **still crashes**. The long-standing
+    "broken SIM2" confound is now closed.
+  - **Symptoms, not causes** (do not use as evidence): the `AudioParamParser`
+    `inotify_add_watch failed` loop (see §19.3) tracks the crash perfectly at
+    n=5 and is **not** causal — patching the watched path away (`0` errors) still
+    crashes; `MobiCore mcd` hotplug storms run at the same 19-20/s in *every*
+    configuration including the working one; `AudioALSAStreamOut: open()` and
+    `EnableSideToneFilter` appear in both crashing and non-crashing captures.
+  - **Cannot be done at all**: swapping the native RIL (`mtk-ril.so`,
+    `librilmtk.so`, `libril.so`) — LOS ships AOSP 7.1 `libril.so`, MIUI ships
+    6.0; the ABI is incompatible and a previous swap attempt overwrote the
+    shared 64-bit `libutils`/`libbinder`/`libbase` and nearly bricked the device.
+    The speech/C2K libraries are in fact byte-size identical across both ROMs
+    (`libc2kril.so` 94684, `libc2kutils.so` 26356,
+    `libviatelecom-withuim-ril.so` 269228) — only the generic, version-locked
+    Android stack differs.
 - **2026-09-15 malam — BREAKTHROUGH: EX record MD3 ter-decode penuh** (artefak: `ccci_dump3.txt`, `dmesg_call_full3.txt`, `md3_exrec.bin` di `nikelbuild/`; `md3_exrec.bin` = parse blok "Dump MD EX log" `Base: ffffffc0b8299beb`):
   - Data diambil dari `/proc/ccci_dump` (buffer CCCI NORMAL yang tidak tercetak console karena `ccci_debug_enable` default 4; set `echo 6 > /sys/kernel/ccci/debug` untuk semua print / 5 untuk detail-EE saja tanpa noise).
   - Record: `ex_type=15 LTE_EXP`, **file = `mon/monfatalerror.c`**, **ExStr = `Ex Enter` + `Exception Nested Happened! \r\n`**, `Hisr65`, PC/LR MD3 = `0x00106A85`/`0x00106A84`, param `Ex D 0x204 / 0xD1`.
@@ -930,3 +970,246 @@ git format-patch <base-commit>..HEAD --stdout > device/xiaomi/nikel/patches/syst
   android.hardware.fingerprint.IGoodixFingerprintDaemon`, `service check
   android.security.keystore`, `pidof mcDriverDaemon goodixfingerprintd
   fingerprintd`.
+
+### 10b-e. Call crash (MD3 modem exception) — radio-prop theory, TESTED AND REFUTED (2026-09-30)
+
+> **Status correction (2026-09-30).** This section was originally written as
+> "fixed by restoring missing MIUI radio props" and claimed *zero* `ee=a3`
+> afterwards. **That claim is false and has been re-tested.** The prop set below
+> plus 35 further telephony props was applied to a pristine LOS system and every
+> outgoing call still produced `ee=a3f` / `Unbalanced enable for IRQ 319` /
+> modem reset (test F, `§8f`). Most of the props listed as "the fix" were
+> **already present** in the LOS `build.prop` before this experiment — see the
+> md5/diff record in `CALL_CRASH.md`. Kept here as a record of what was tried
+> and why it does not work; do not cite it as a fix.
+
+The original symptom description was accurate: every outgoing call crashed the
+modem within ~2 s. MD3 (C2K) raised `exception type(15): Fatal error
+(LTE_EXP)` with fatal code `mon/monf...` (`mon/monfatalerror.c`, speech RX HISR
+path), the kernel logged `[ccci3/ken]MD exception timer 2! ee=a3f`, and the
+radio stack reset. Long investigation (see `CALL_CRASH.md` in the build
+workspace) established:
+
+- The native radio stack is MIUI-identical (kernel, MD1/MD3 images, mtkrild,
+  mtk-ril.so, muxd, audio HAL), and a known-good SamarV ROM with md5-identical
+  `mtk-ril.so` / `librilmtk` / `libmal` / `libmdfx` / `libaed` **also** fails
+  calls — so neither firmware nor the mux daemon explains it.
+- The theory tested in this section was that the M-gen C2K/world-phone radio
+  configuration was missing from the LOS `build.prop`, leaving the C2K speech
+  bridge between MD1 and MD3 half-configured. **Disproved** — see above.
+- The decisive experiment remains the one in §8: blocking the AP's access to
+  the speech path (`chmod 000 /dev/ccci3_aud`) does **not** stop the crash, so
+  the fatal event is the modem-internal MD1→MD3 SMEM type-19 broadcast, not
+  anything the AP does to a device.
+
+Prop set that was applied and did **not** fix the crash:
+
+```
+mtk.eccci.c2k=enabled
+ro.mtk_md_sbp_custom_value=0
+persist.radio.apm_sim_not_pwdn=1
+persist.radio.default.sim=0
+persist.radio.mobile_data=0,0
+persist.radio.gemini_support=1
+persist.radio.flashless.fsm=0
+persist.radio.flashless.fsm_cst=0
+persist.radio.flashless.fsm_rw=0
+persist.radio.mtk_dsbp_support=1
+persist.radio.mtk_ps2_rat=W/G
+persist.gemini.sim_num=2
+persist.mtk_dynamic_ims_switch=1
+ro.gemini.smart_sim_switch=false
+ro.mediatek.gemini_support=true
+ril.read.imsi=1
+ril.specific.sm_cause=0
+ril.radiooff.poweroffMD=0
+ril.flightmode.poweroffMD=1
+ro.mtk_external_sim_support=1
+ro.mtk_external_sim_only_slots=0
+ro.sim_me_lock_mode=0
+ro.sim_refresh_reset_by_modem=1
+ro.mtk_eap_sim_aka=1
+ro.mtk_sim_hot_swap_common_slot=1
+ro.mtk_modem_monitor_support=1
+ro.ril.enable.amr.wideband=1
+```
+
+DO NOT add these (verified failures):
+
+- `ro.mtk_srlte_support=1` — **MD1 boot hangs at stage S2** (`md_boot_stats`
+  = "TC S2"; muxd freezes, `ril.muxreport` never set, rild never starts).
+- `ro.mtk_world_phone_policy=0` — **ril-daemon-mtk fails to start** even
+  from build.prop at boot (not just a runtime-setprop artifact as once
+  suspected).
+- ims/volte props (`ro.mtk_ims_support`, `ro.mtk_volte_support`,
+  `persist.mtk.volte.enable`, `persist.mtk.ims.video.enable`,
+  `persist.dbg.volte_avail_ovr`) — **safe to re-add, but they do not fix the
+  call crash** (test A, 2026-09-30: MIUI with `ro.mtk_ims_support=1` deleted
+  still called fine, so the prop is not the cause; and test F, LOS with all of
+  them added, still crashes). The 2017 mtk-ril `getImsParam` failure
+  documented in `build.prop` (§2) is the only reason to leave them out.
+
+Reference MIUI source: MIUI Hellas 9.3.21 v10-6.0 (HMNote4) full ROM; its
+`system/build.prop` is the authoritative source for these values.
+
+Status recorded on 2026-09-27 and **superseded**: "outgoing calls now connect
+with no modem reset". That observation did not reproduce — 7 further
+single-variable tests since then all crash (§8f). The extras that were
+installed from the MIUI image for C2K parity are still in place and remain
+unproven individually necessary: `/system/etc/mddb/*` (C2K modem database,
+absent from the LOS build), `mcd_default.conf`, `mdb_pub.key`, `mdbversion`;
+`/system/bin/MtkCodecService` (run manually; add an init service on the next
+boot.img rebuild). `viarild`/`libviatelecom-withuim-ril.so` were copied over
+but stock MIUI does not ship viarild either (disabled); harmless if mdinit
+fails to start it.
+
+MD3 partition (mmcblk0p15) was re-flashed from the true stock
+`/system/etc/firmware/modem_3_3g_n.img` (bfe0d82a) — the previous partition
+content (cadc0922) was an experimental-era image, not stock. Note that the
+crash reproduces with **both** images and with the official V10.2.1.0
+firmware, so the modem image is not the differentiator either.
+
+---
+
+## 8f. Controlled single-variable bisect, 2026-09-30 — 6 axes cleared
+
+Method: each test changed exactly one thing relative to a known-good or
+known-bad baseline and re-measured `ee=a3f`, `MD exception`,
+`Unbalanced enable for IRQ 319`, `DEVAPC` and whether the call reached
+`ACTIVE`. Images are raw `ext4` system images edited with `debugfs` (no
+mount, no root on the host needed); boot images repacked with a ~40-line
+Python Android-boot packer.
+
+| # | Change | Crash? | Conclusion |
+| :--- | :--- | :--- | :--- |
+| ref | stock MIUI | no | baseline |
+| A | MIUI minus `ro.mtk_ims_support=1` | no | IMS prop not the cause |
+| C | MIUI + **LOS kernel**, MIUI ramdisk | no | **kernel not the cause** |
+| F | pristine **LOS + 35 telephony props** | **yes** | props not the cause |
+| D | LOS + MIUI `libaudio_param_parser.so` + `b6a` XMLs | **yes** | audio param not the cause |
+| E | LOS + watched path patched off (loop 37→0) | **yes** | inotify loop is a symptom |
+| G | LOS with **SIM2 properly registered** | **yes** | SIM2 state not the cause |
+
+**Crash timing (new, and it matters):** the exception fires **1.7–8 s before
+the user presses dial**, while the AP is idle (`+ECSQ` signal polls, WiFi
+`SIGNAL_POLL`, ALS only). The call then fails with
+`DisconnectCause (ERROR) Cellular network not available` because the modem is
+already dead. **The call is the victim, not the trigger.** Anyone re-testing
+this should therefore not assume "nothing happened until ATD".
+
+Instrumentation limits found the hard way:
+- **MIUI cannot supply a comparison trace.** Its blob-based RIL has the
+  `AT`/`RILJ` D-level logging compiled out: 5 `RILJ` lines total vs 2.117 on
+  LOS, and `setprop log.tag.RILJ/RIL/AT/ATCI/RILMUXD D` installs the
+  properties but produces nothing. `dmesg` on MIUI has 30 `ccci` lines (all
+  `ccci1/net invalid ccmni rx channel(0x60)`) vs ~2.900 on LOS. So a
+  modem-facing message diff MIUI↔LOS is **not possible** without rebuilding
+  the vendor RIL blob with logging enabled.
+- **`sys.boot_completed` + `system_server` pid stability are the real
+  liveness signals.** A capture that looked alive (logcat flowing at +2.7k
+  lines/10 s) was in fact a `system_server` crash loop; §19.4.
+- A capture reference that lacks a needed log is not a baseline. The old MIUI
+  reference capture had no `RILJ` at all and had to be discarded.
+
+---
+
+## 19. Build-integrity defects found while chasing #8 (2026-09-30)
+
+None of these are the call crash — all four are real defects in the LOS build
+and none of them is caused by the crash. They were found because #8 forced a
+full differential against a working MIUI `/system`. **Not fixed**; listed so the
+next person does not rediscover them.
+
+### 19.1 `mtkrild` runs in the SELinux `toolbox` domain
+
+```
+avc: denied { accept } for comm="mtkrild.real" path="/dev/socket/rild"
+        scontext=u:r:toolbox:s0  tcontext=u:r:init:s0
+```
+
+| capture | `avc: denied` total | for `mtkrild` |
+| :--- | ---: | ---: |
+| MIUI `/system` (+ LOS kernel) | 176 | **0** |
+| LOS `/system` | 630 | **146** |
+
+- **Cause:** CM14.1's policy has no domain for MTK's RIL blob
+  (`mtkrild`/`mtkrild.real`), and `device/xiaomi/nikel` ships **no sepolicy at
+  all** — no `*.te`, no `sepolicy/` dir, only `patches/system_sepolicy.patch`
+  (a patch *against* AOSP). AOSP's `rild.te` labels `/system/bin/rild`, which
+  does not exist here, so the MTK-named binary never gets a domain transition
+  and inherits `toolbox`.
+- **Not proven causal for #8:** the LOS boot runs
+  `androidboot.selinux=permissive`, so the denials are all *allowed*. Testing
+  this properly needs (a) a `rild`/`mtkrild` domain in
+  `BOARD_SEPOLICY_DIRS` and (b) an enforcing boot — note `secilc` is not
+  available on the build host and `rom_source/system/sepolicy` is a
+  **much newer** AOSP tree than CM14.1, so the policy must be recompiled from
+  the matching sources first.
+
+### 19.2 `md_log_config` is missing
+
+```
+E ccci_mdinit(0): Open md_log_config file failed, errno=2!   (ENOENT)
+```
+
+LOS-only (0 occurrences with the MIUI `/system`). Not currently known to break
+anything, but it means the CCCI modem-logger has no config and is running
+unconfigured.
+
+### 19.3 `etc/audio_param/b6a/` is missing from the build; parser lib is stale
+
+- `proprietary-blobs.txt` lists `etc/audio_param/*.xml` as a **flat** list, so
+  the board-specific `b6a/` subdirectory present in MIUI (61 XMLs) is never
+  copied. Fix: add the subtree to the blob list.
+- `libaudio_param_parser.so` in the LOS build is an **older blob**: it never
+  reads `/proc/cmdline` and knows nothing about `b6a`, so it cannot select the
+  per-board parameter directory. Consequence: it falls back to watching
+  `/sdcard/.audio_param/`, and **`/sdcard` is a FUSE mount — `inotify` does not
+  work on FUSE on this 3.18 kernel**, so `appHandleThreadLoop()` spins forever
+  logging `inotify_add_watch failed` once per second, at idle.
+- Verified as a **symptom, not the crash cause**: patching the watched path to
+  `/system/etc/` (1 string, byte-count identical, no new files) drove the error
+  count to **0** and the modem still threw `ee=a3f` on the next call.
+- Worth fixing anyway for a 1 Hz log flood and a wasted `audioserver` thread.
+
+### 19.4 MIUI cannot boot on CM14.1 `/data` — `system_server` crash loop
+
+```
+Caused by: java.lang.NumberFormatException: Invalid long:
+           "0 0 0 0 1790711087323 0 1790711087822 0"
+  at com.android.server.pm.PackageManagerService$PackageUsage.readLP(:1130)
+  at PackageManagerService.<init>  →  SystemServer.startBootstrapServices
+```
+
+`/data/system/packages.xml` written by CM14.1 (Android 7.1) is not parseable
+by MIUI (Android 6.0). `system_server` throws in its constructor, init restarts
+it, it throws again — observed **40 restarts in 20 minutes** — so
+`BOOT_COMPLETED` is never sent and the phone sits in the boot animation
+forever with the SoC at full load.
+
+- **Fix: always Format Data when switching ROMs.** After a format MIUI booted
+  normally in 7 minutes.
+- Symptom to recognise: boot animation loops indefinitely, `adb` is up, adb
+  `logcat` is *busy* (that is the crash loop, not progress), and
+  `getprop sys.boot_completed` stays empty while `system_server`'s pid changes.
+- Related: #14 (off-charge bootloop) is a *different* failure with a similar
+  look — check `dmesg`/`bootanimation` progress before assuming either.
+
+### 19.5 MTK MAL / AudioLink blob set is absent (not yet diagnosed)
+
+MIUI ships 20 telephony/audio files that the LOS build does not:
+`libfvaudio_call.so` (voice-call audio) plus `libmal.so` and
+`libmal_{rds,datamngr,epdga,imsmngr,mdmngr,nwmngr,rilproxy,simmngr}.so`
+(32 and 64 bit each). The client half, `libmdfx.so`, is **md5-identical** in
+both ROMs (`22402641209261b875020d7ca0b9a8c9`) and contains the MFI client
+(`MFI-Conn`, `mfia_task_bootstrap`, `mal-mfi`). On LOS the client is reached and
+then fails repeatedly (`MFI-Conn: socket_local_client() error 2!!`),
+correlating perfectly with the crash at n=6 (0/0/0 on MIUI-system captures,
+20/20/119 on LOS-system captures).
+
+**But `mal-mfi` does not exist anywhere** — not in `/system/bin`, not in
+`/vendor/bin` (this device has no populated `/vendor` partition at all), and
+`/vendor` inside the system image holds only 5 (LOS) / 7 (MIUI) entries with no
+MFI. So MIUI never enters that code path and the correlation is a consequence
+of *how* the LOS system drives the RIL, not a blob that can simply be added.
+Do not spend time adding the 20 libs expecting the error to go away.
