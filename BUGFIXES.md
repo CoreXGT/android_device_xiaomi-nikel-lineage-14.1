@@ -1467,13 +1467,58 @@ camera set, not just these two libraries.
   so a live gain experiment is not available; `debug.awb_mgr.lock` is the
   closest (lock only).
 
-### 20.6 Next experiment worth running
+### 20.6 AF profile matrix — DONE (2026-10-01): AF is NOT profile-driven
 
-#13's profile matrix only ever measured **colour**. AF was never part of it.
-`max-num-focus-areas` comes from the same per-sensor metadata constructor, so
-re-running the 9-constructor matrix while reading
-`dumpsys media.camera | grep max-num-focus-areas` and the `setAFMode` line is
-cheap (bind-mount a remapped `libcameracustom.so`, `killall mediaserver`)
-and would answer whether any MTK reference profile gives a non-zero AF region
-count — i.e. whether AF can be fixed by profile choice at all, before anyone
-goes near the OTP path.
+#13's matrix only ever measured **colour**, so the 6 same-length-swappable
+profiles were re-run reading the AF state instead. Method: the rear drvname
+slot is a 30-byte string (`SENSOR_DRVNAME_IMX258_MIPI_RAW` at `0x56430` in
+the 32-bit lib, `0x8811a8` in the 64-bit one), patched to
+`SENSOR_DRVNAME_<X>_MIPI_RAW`, bind-mounted over both
+`libcameracustom.so` copies, `killall mediaserver`, then read
+`dumpsys media.camera` + the AF logs.
+
+| profile | mount | `max-num-focus-areas` | `setAFMode` | runtime AF lines | AppTsf warns | max JPEG |
+|---|---|---|---|---|---|---|
+| IMX258 (shipped) | verified | 0 | 0 | 0 | 2 | 4160x3120 |
+| IMX214 | verified | 0 | 0 | 0 | 2 | 4160x3120 |
+| IMX230 | verified | 0 | 0 | 0 | 2 | 4160x3120 |
+| IMX377 | verified | 0 | 0 | 0 | 2 | 4160x3120 |
+| S5K3M2 | verified | 0 | 0 | 0 | 2 | 4160x3120 |
+| S5K2X8 | verified | 0 | 0 | 0 | 2 | **5120x3840** |
+
+The S5K2X8 row is the control that proves the remap really reaches the HAL:
+its max JPEG changes from 13 MP to 20 MP. So the profile swap works, and AF
+metadata does **not** come from it — AF is identical for all six. Choosing a
+different constructor cannot fix AF; only colour (#13) was ever profile-
+dependent.
+
+Two tooling traps hit while doing this, both worth remembering:
+
+- `mediaserver` is **32-bit** (`/system/bin/mediaserver: ELF 32-bit LSB arm`),
+  so only `system/lib/libcameracustom.so` matters for metadata/tuning. A
+  matrix run that only swapped the `lib64` copy measures nothing.
+- A **stale bind mount survived from an earlier session**:
+  `/dev/block/mmcblk0p29 on /system/lib/libcameracustom.so (deleted)`. Any new
+  `mount --bind` onto that path then fails with `No such file or directory`,
+  silently producing a no-op test matrix. `umount -l` (lazy) clears it —
+  plain `umount` returns `Invalid argument`. Always verify the post-mount
+  `md5sum` matches the pushed file before trusting a bind-mount experiment.
+
+### 20.7 Where AF actually has to come from
+
+`max-num-focus-areas: 0` for both cameras and every profile means the AF
+config is not per-sensor-profile. The only AF getter `libcameracustom.so`
+exports is untemplated:
+
+```
+_Z10getAFParamv          <- one AF config for all sensors
+_Z11getAWBParamILN11NSIspTuning12ESensorDev_TE1E2E4E8E   <- per-device AWB
+_Z10getAEParamILN11NSIspTuning12ESensorDev_TE1E2E4E8E   <- per-device AE
+```
+
+so the AF config comes from `getAFParam()` (an `NVRAM_CAMERA_AF_CFG_STRUCT`
+filled from compiled-in data, since the NVRAM `CAMERA_3A` LID is empty on
+this unit). Making AF work therefore means supplying a populated AF config —
+i.e. patching a struct inside `libcameracustom.so`, which needs MTK's
+`NVRAM_CAMERA_AF_CFG_STRUCT` layout and the address of `getAFParam`'s data.
+That is the remaining route, alongside the OTP route in 20.5.
