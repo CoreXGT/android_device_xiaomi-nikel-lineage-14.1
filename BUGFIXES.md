@@ -1177,21 +1177,74 @@ LOS-only (0 occurrences with the MIUI `/system`). Not currently known to break
 anything, but it means the CCCI modem-logger has no config and is running
 unconfigured.
 
-### 19.3 `etc/audio_param/b6a/` is missing from the build; parser lib is stale
+### 19.3 `etc/audio_param/b6a/` is missing from the build; parser lib is stale — PARTIALLY FIXED
+
+**Now fixed and verified on device (2026-09-30).** Committed in the vendor
+repo as `d16b395`; a flashable image is at
+`nikelbuild/tmp_miuidiff/x/b6a_system.img`
+(md5 `a113886f681a0880cc157db6903de51f`, pristine LOS + these two changes).
 
 - `proprietary-blobs.txt` lists `etc/audio_param/*.xml` as a **flat** list, so
-  the board-specific `b6a/` subdirectory present in MIUI (61 XMLs) is never
-  copied. Fix: add the subtree to the blob list.
-- `libaudio_param_parser.so` in the LOS build is an **older blob**: it never
-  reads `/proc/cmdline` and knows nothing about `b6a`, so it cannot select the
-  per-board parameter directory. Consequence: it falls back to watching
-  `/sdcard/.audio_param/`, and **`/sdcard` is a FUSE mount — `inotify` does not
-  work on FUSE on this 3.18 kernel**, so `appHandleThreadLoop()` spins forever
-  logging `inotify_add_watch failed` once per second, at idle.
-- Verified as a **symptom, not the crash cause**: patching the watched path to
-  `/system/etc/` (1 string, byte-count identical, no new files) drove the error
-  count to **0** and the modem still threw `ee=a3f` on the next call.
-- Worth fixing anyway for a 1 Hz log flood and a wasted `audioserver` thread.
+  the board-specific `b6a/` subtree present in MIUI (61 XMLs, 380 KiB) was
+  never copied. Fixed by dropping the 61 files into
+  `vendor/xiaomi/nikel/system/etc/audio_param/b6a/` — the vendor tree already
+  does `find-copy-subdir-files(*, vendor/xiaomi/nikel/system/, system/)`, so
+  nothing else needed changing. All 61 verified to parse as valid XML.
+- `libaudio_param_parser.so` in the LOS build is an **older blob**: it has 0
+  occurrences of `b6a` and 0 of `/proc/cmdline`, so it cannot select the
+  per-board parameter directory. The MIUI blob has 2 and 4 respectively.
+  Replaced both the 32-bit and 64-bit copies. `DT_NEEDED` is the same set of
+  10 libraries in the same order and the only new undefined symbol is `atoi`
+  from libc, so the swap is link-safe. Note `lib/` and `lib64/` in the vendor
+  tree are symlinks to `../system/`, so replacing the files under `system/`
+  covers both. `audioserver` is 32-bit, so `system/lib` is the copy that
+  actually loads (verified at runtime: md5 `a698d5aaac12af3f…`).
+- Verified on device: 61 files present, correct md5, `md1`/`md3` ready. The
+  audio HAL now uses Xiaomi's own `b6a` tuning.
+
+**The 1 Hz `inotify` log flood is NOT fixed. Root cause corrected.**
+
+An earlier version of this section blamed the loop on inotify being
+unsupported on FUSE. **That was wrong.** `/proc/uptime`-verified on device:
+
+```
+$ adb shell strace -f -p <audioserver> -e trace=inotify_add_watch
+1354  inotify_add_watch(7, "/sdcard/.audio_param/", IN_CLOSE_WRITE)
+      = -1 EACCES (Permission denied)
+```
+
+It is a plain `EACCES` — an ordinary permission problem, not a FUSE
+limitation. `/sdcard` is a FUSE mount mounted with `default_permissions`, so
+the FUSE daemon simply applies the directory mode:
+
+```
+/sdcard/.audio_param   root:sdcard_rw   mode 0771
+audioserver groups:    1006 1013 1026 1031 2950 3001 3002 3003 3007
+                       (sdcard_rw = 3009 is NOT among them)
+```
+
+Consequences, each verified:
+- `mkdir /sdcard/.audio_param_b6a` does **not** help — the directory was
+  already present, and the failure is access, not absence. Creating it also
+  does not stop the errors.
+- `chmod 755` / `chown` are **no-ops**: `/storage/emulated` is a FUSE mount
+  with `user_id=1023` that rejects metadata operations, and `/system` is
+  read-only.
+- Patching the watched path is **not viable either**: the field is 21 bytes
+  and `/system/etc/audio_param` is 23 characters. There is no existing
+  directory of 21 or fewer characters that would resolve correctly, so any
+  such patch would point the parser at the wrong location.
+
+The real fix is to add `audioserver` to the `sdcard_rw` group, i.e. a SELinux
+change. That is blocked on the same grounds as §19.1: `secilc` is not
+available on the build host and `rom_source/system/sepolicy` is a much newer
+AOSP tree than CM14.1, so the policy has to be recompiled from matching
+sources first.
+
+Still a **symptom, not the crash cause** — two independent confirmations:
+patching the watched path away drove the count to 0 with the modem still
+throwing `ee=a3f` (test E), and shipping the full `b6a` + MIUI parser setup
+still crashed (test D, and again on the device).
 
 ### 19.4 MIUI cannot boot on CM14.1 `/data` — `system_server` crash loop
 
