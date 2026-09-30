@@ -1234,3 +1234,57 @@ correlating perfectly with the crash at n=6 (0/0/0 on MIUI-system captures,
 MFI. So MIUI never enters that code path and the correlation is a consequence
 of *how* the LOS system drives the RIL, not a blob that can simply be added.
 Do not spend time adding the 20 libs expecting the error to go away.
+
+---
+
+### 19.6 Reverse engineering MD1: investigated, NOT FEASIBLE as-is (2026-09-30)
+
+Follow-up to #8, since `chmod 000 /dev/ccci3_aud` proved the crash is
+modem-internal and MD1 is the last untested layer.
+
+**Setup.** Ghidra 12.1.3 headless, `md1rom.img` (15,992,880 byte, md5
+`ff4cb9b57670d69731b72c9898b793a8`, base `0x00f3f7e0`, magic `0x58881688`,
+`LCSH6797_6C_LW_M_MDBIN_PCB01_MT6797_S00.MOLY_LR11_W1603_MD_MP_V13_18_P90`).
+Imported as `ARM:LE:32:v7`; full autoanalysis in 329 s; project 283 MB.
+
+**Finding — MD1 has no symbol table.** An early count suggested ~13k
+`_NAME` strings, which looked like a full symbol table. It is not:
+
+```
+"AUBUAF"            = ARM instructions that happen to decode as ASCII
+"index < MPU_REGION_NUM" = an assert/trace string
+(len16 + name) candidates  = 0
+4-byte address before name = 0 of 2000
+sorted?              = False   (a real symbol table is always sorted)
+Ghidra symbol table   = 0
+```
+
+They are runtime trace/assert strings, as on MD3. The string count was a
+false lead — do not repeat it.
+
+**Finding — the runtime shortcut that made MD3 tractable does not exist for
+MD1.** MD3 was mapped because the exception record carried `PC/LR
+0x00106A85/0x00106A84` from `/proc/ccci_dump`. That buffer does not contain
+an MD1 exception record at all:
+
+```
+ccci_dump*.txt (4 files, all pre-existing):
+  23 unique hex addresses, all in 0x0040xxxxx-0x00455xxxxx
+  MD1 base is 0x00f3f7e0  ->  zero matching addresses
+  contents are "Dump MD layout struct" (pointers/sizes), not program counters
+  "EE0: 00000000 00000000 ..." 3x, all zero
+  only MD3 EE is recorded ("ee=a3d"/"ee=a3f")
+```
+
+So MD1 is 3x larger than MD3, has no symbols, and yields no PC/LR hint.
+Mapping the SMEM type-19 receiver means searching ~3.4M ARM instructions by
+pattern with no label to confirm a hit — and the disassembly alone cannot
+tell a correct identification from a plausible one.
+
+**Verdict: not feasible without vendor symbols or an MD1-side EE trace.**
+Recorded so nobody spends a day rediscovering it. The only route that would
+change this is a leaked MTK symbol map for `W1603.P90`, or MD logger/DHL
+output from a stock MIUI stack (both MTK-proprietary).
+
+Note: MD1 is TrustZone secure world, so even a known handler would be reached
+through an indirect dispatch table, not the direct xrefs that sufficed on MD3.
