@@ -28,7 +28,7 @@ Bug diagnostics use these code paths repeatedly:
 | 14 | **Off-charge bootloop (MI logo repeats when charging while off)** | ✅ **FIXED (2026-09-19)** | #14 |
 | 8 | Voice calls crash C2K modem (MD3) | ❌ NOT FIXED (community-wide) | #8 |
 | 8f | — #8 single-variable bisect: 6 axes cleared | ✅ documented | #8f |
-| 19 | 4 build-integrity defects found while chasing #8 (SELinux `mtkrild` domain, `md_log_config`, `audio_param/b6a`, CM14.1 `/data` incompatible with MIUI) | ❌ NOT FIXED | #19 |
+| 19 | 4 build-integrity defects found while chasing #8 (`md_log_config` missing, `audio_param/b6a` not copied, MIUI cannot boot on CM14.1 `/data`, MTK MAL blobs absent) | ❌ NOT FIXED | #19 |
 | 13 | Rear camera green cast at night / low light | ✅ FIXED (2026-09-14) | #13 |
 | 15 | AudioFx has stopped (frequent, especially while ringing) | ✅ FIXED (2026-09-21) | #15 |
 | 16 | SMS (Messaging) app crashes when opening a message | ✅ FIXED (2026-09-21) | #16 |
@@ -1120,31 +1120,52 @@ and none of them is caused by the crash. They were found because #8 forced a
 full differential against a working MIUI `/system`. **Not fixed**; listed so the
 next person does not rediscover them.
 
-### 19.1 `mtkrild` runs in the SELinux `toolbox` domain
+### 19.1 RIL SELinux denials — MISDIAGNOSED, correcting the record
+
+An earlier note in this section claimed `mtkrild` runs in the SELinux `toolbox`
+domain. **That was wrong** and is corrected here.
+
+Runtime check on the device:
 
 ```
-avc: denied { accept } for comm="mtkrild.real" path="/dev/socket/rild"
-        scontext=u:r:toolbox:s0  tcontext=u:r:init:s0
+mtkrild      label=u:r:mtkrild:s0        ls -Z  u:object_r:mtkrild_exec:s0
+gsm0710muxd  label=u:r:gsm0710muxd:s0    ls -Z  u:object_r:gsm0710muxd_exec:s0
+mnld         label=u:r:mnld:s0
 ```
 
-| capture | `avc: denied` total | for `mtkrild` |
-| :--- | ---: | ---: |
-| MIUI `/system` (+ LOS kernel) | 176 | **0** |
-| LOS `/system` | 630 | **146** |
+The domain and the executable label are both correct. The `toolbox` string that
+prompted the original claim was a `scontext` on a *single* `avc: denied` line,
+not the process's domain. Lesson: confirm a SELinux claim with
+`/proc/<pid>/attr/current` and `ls -Z <binary>`, never from one audit line.
 
-- **Cause:** CM14.1's policy has no domain for MTK's RIL blob
-  (`mtkrild`/`mtkrild.real`), and `device/xiaomi/nikel` ships **no sepolicy at
-  all** — no `*.te`, no `sepolicy/` dir, only `patches/system_sepolicy.patch`
-  (a patch *against* AOSP). AOSP's `rild.te` labels `/system/bin/rild`, which
-  does not exist here, so the MTK-named binary never gets a domain transition
-  and inherits `toolbox`.
-- **Not proven causal for #8:** the LOS boot runs
-  `androidboot.selinux=permissive`, so the denials are all *allowed*. Testing
-  this properly needs (a) a `rild`/`mtkrild` domain in
-  `BOARD_SEPOLICY_DIRS` and (b) an enforcing boot — note `secilc` is not
-  available on the build host and `rom_source/system/sepolicy` is a
-  **much newer** AOSP tree than CM14.1, so the policy must be recompiled from
-  the matching sources first.
+What survives, and correlates perfectly with the crash:
+
+| capture | `avc: denied` total | for `mtkrild` | crash |
+| :--- | ---: | ---: | :--- |
+| MIUI `/system` (+ LOS kernel) | 176 | **0** | no |
+| LOS `/system` | 630 | **146** | yes |
+| LOS `/system` (test G) | 453 | **88** | yes |
+
+The reproducible part is the *denial count*, not a mislabelled domain. The
+denials are an **effect**, not a cause: they appear only once the LOS system
+drives the RIL into a path that requests access it does not have. Since the LOS
+boot runs `androidboot.selinux=permissive` they are all allowed and block
+nothing. Do not chase this as a crash cause.
+
+Note: `device/xiaomi/nikel` still ships **no `sepolicy/` directory and no
+`BOARD_SEPOLICY*` line**, so its policy is inherited wholesale from CM14.1's
+AOSP tree. That happens to be adequate here (all three MTK daemons get correct
+domains via AOSP's `rild`/`radio` rules plus MTK's own prebuilt policy), but it
+is fragile and worth a native `sepolicy/` for the MTK daemons if the policy is
+ever tightened. `SamarV-121/android_device_xiaomi_nikel` (branch `test1/cm-14.1`)
+does carry a 59-file `sepolicy/` with `ril-daemon-mtk.te`,
+`ccci_fsd.te`, `ccci_mdinit.te`, `md_ctrl.te`, `gsm0710muxd.te`,
+`muxreport.te`, `mnld.te`, `nvram_daemon.te`, `thermal_manager.te` and the
+matching `file_contexts`. That tree is the same upstream this device tree was
+forked from (initial commit `db572dc`, Samar Vispute, 2017-05-14), and its
+`sepolicy/` was never present in this lineage's history. Useful as a reference
+if a native policy is ever needed — **but note its build also fails calls**, so
+it is not a working-call reference for #8.
 
 ### 19.2 `md_log_config` is missing
 
