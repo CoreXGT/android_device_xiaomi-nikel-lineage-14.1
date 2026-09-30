@@ -1341,3 +1341,139 @@ output from a stock MIUI stack (both MTK-proprietary).
 
 Note: MD1 is TrustZone secure world, so even a known handler would be reached
 through an indirect dispatch table, not the direct xrefs that sufficed on MD3.
+
+---
+
+## 20. Rear camera: why AF is dead and the low-light cast survives — full diagnosis (2026-10-01)
+
+Data-driven follow-up to #13. Everything below was measured on the running
+ROM (`build $ date 2026-10-01`, LOS 14.1 + the #12/#13 fixes, MIUI V10.2.1.0
+flash layout).
+
+### 20.1 Kernel differences are ruled out — do not patch the kernel driver
+
+The MIUI and LOS kernels were extracted from their own `boot.img` and
+compared byte for byte:
+
+| | gz offset | Image size | Image md5 |
+|---|---|---|---|
+| MIUI V10.2.1.0 boot.img | `0x800` | 19,726,336 | `de51d56da46e07e14fefcdba30919b0c` |
+| LOS `prebuilt/kernel` | `0x0` | 19,726,336 | `0f5f8264dca45e95b37bbe789b8e95f3` |
+
+Same size, **187 differing bytes in 8 regions**:
+
+| offset | what it is |
+|---|---|
+| `0x0b2a07d`, `0x0b2a0d3`, `0x0b2a13c`, `0x10a683e` | build banners (`bd19` vs `bd54`, dates) |
+| `0x0ffb040` | `.note.gnu.build-id` hash |
+| `0x1075448` | embedded blob, 105 bytes, not camera related |
+| `0x115a420`, `0x115a4b0` | `kdSensorList` entry order — **the intentional #12 swap** |
+
+So the LOS kernel is code-identical to MIUI's; the only real delta is the
+fix #12 already ships. Two corrections to earlier notes in this file:
+
+- The `kdSensorList` order change is **not** a bug — #12 swaps entries 3 and
+  6 on purpose. (48-byte entries `{id u32, name[32], pad u32, fn u64}`,
+  stride `0x30`, base `0x115a390`; LOS order is
+  `[s5k3l8new, s5k5e8yxb6qteck, s5k3l8sunny, s5k5e8yxb6, s5k3l8qteck,
+  s5k5e8yxb6sunny]`.)
+- The bd54 s5k3l8 driver **does** export OTP white-balance code —
+  `S5k3L8_MIPI_read_otp_wb`, `S5k3L8_MIPI_write_otp_wb`,
+  `S5k3L8_MIPI_algorithm_otp_wb1`,
+  `S5k3L8_MIPI_update_wb_register_from_otp` are all present in
+  `/proc/kallsyms` on the booted kernel. The earlier "no OTP read" note was
+  wrong.
+
+### 20.2 AF never runs at all
+
+With the HAL3A debug switches on (`debug.af_mgr.enable`,
+`debug.pd_vc.enable`, `log.tag.AFv2=VERBOSE`), a full preview + shutter
+sequence produced **only init logs** — 228 AF lines, every one of them from
+`af_mgr_v3: Start()`, `AfAlgo [initAF]`, `config Zoom`, `AFv2 AF running
+version 3` and a single `setAFMode`:
+
+```
+AfAlgo: [AfAlgo0][setAFMode][Mode]0        <- AF_OFF, once, never changed
+AfAlgo: [AFv2][param] i4ReadOTP 1          <- AF expects OTP lens calibration
+AfAlgo: [AFv2][param] i4InfPos 200
+aaa_hal_sttCtrl: querySensorStaticInfo 585 PDSupport=0   <- no PDAF (expected)
+```
+
+Zero `doAFProcBuf` / focus-step / motor lines across a whole capture, and
+pressing the hardware focus key changes nothing. Static metadata for **both**
+cameras reports:
+
+```
+Camera 0 (rear)  : max-num-focus-areas: 0     max-num-metering-areas: 9
+Camera 1 (front) : max-num-focus-areas: 0     max-num-metering-areas: 9
+```
+
+So AF is dead for rear *and* front; it is not a rear-sensor problem.
+
+### 20.3 Both symptoms trace to the same cause: a borrowed 3A profile
+
+The #13 fix remaps the rear drvname to `SENSOR_DRVNAME_IMX258_MIPI_RAW`, so
+the s5k3l8 runs on MTK's IMX258 metadata **and** tuning. The HAL says so
+out loud at init:
+
+```
+AppTsf: [TsfInit][Warning] Not Valid AWB Golden Gain R(0) G(0) B(0), set to 512!
+AppTsf: [TsfInit][Warning] Not Valid AWB Unit Gain R(0) G(0) B(0), set to 512!
+awb_algo: [PV AWB Gain] LV = 43, Rgain = 748, Ggain = 512, Bgain = 1036
+```
+
+Zero golden/unit gains -> neutral placeholder 512 -> the AWB algorithm
+free-runs, and #13's night cast (1.68) is what it produces. The same
+borrowed-profile gap is why the AF metadata yields 0 focus regions and AF is
+never started.
+
+### 20.4 The samarv reference camera stack does NOT work here — tested, reverted
+
+`lineage-14.1-20170812-UNOFFICIAL-nikel-samarv.zip` ships a completely
+different camera stack than this tree:
+
+| file | samarv | this tree (shipped) |
+|---|---|---|
+| `system/lib/libcameracustom.so` | 20,799,796 (`00a983f4`) | 10,551,236 (`1b89c679`) |
+| `system/lib64/libcameracustom.so` | 20,917,768 (`bfb6de33`) | 10,611,000 (`08b80b0f`) |
+| `system/lib/libcam.hal3a.v3.so` | 892,160 (`60997c9c`) | md5 `9af2c96b` |
+| `system/lib64/libcam.hal3a.v3.so` | 1,555,912 (`7c93fad8`) | md5 `1e0823e3` |
+
+Flashing all four as a matched pair makes the camera module fail to load:
+
+```
+CameraService: getCameraVendorTagDescriptor: camera hardware module doesn't exist
+CAM_PhotoModule: Failed to open camera:0
+FATAL EXCEPTION: main (org.cyanogenmod.snap)
+  java.lang.ArrayIndexOutOfBoundsException: length=0; index=0
+      at com.android.camera.PhotoModule.initializeFocusManager(PhotoModule.java:2732)
+```
+
+`length=0` = the HAL reports zero cameras. Reverted to the tree libs
+(`/tmp/opencode/revcam_camlibs.zip`); camera and preview confirmed working
+again (`CameraService::connect ... camera ID 0`, `startPreview: SurfaceHolder`).
+Do not retry the samarv camera libs — the module needs its whole matching
+camera set, not just these two libraries.
+
+### 20.5 The per-unit OTP path is still reachable (untested)
+
+- `/dev/CAM_CAL_DRV` exists on LOS (char 239:0, `system:camera`).
+- MIUI's `libcameracustom` exports `CAM_CALInit`, `CAM_CALDeviceName` and
+  `S5K3L8_CAM_CALGetCalData(unsigned char*)`, so the whole CAM_CAL client is
+  inside that library and can be dlopen'd rather than reimplemented.
+- Ioctl constants recovered from `S5K3L8_CAM_CALGetCalData` disassembly:
+  `0xc0146905` = `_IOWR('i', 5, 326)` and `0x020b00ff` = `_IOW(0, 0xff, 2816)`.
+- Nothing in the HAL3A debug property list exposes an AWB/AF gain override,
+  so a live gain experiment is not available; `debug.awb_mgr.lock` is the
+  closest (lock only).
+
+### 20.6 Next experiment worth running
+
+#13's profile matrix only ever measured **colour**. AF was never part of it.
+`max-num-focus-areas` comes from the same per-sensor metadata constructor, so
+re-running the 9-constructor matrix while reading
+`dumpsys media.camera | grep max-num-focus-areas` and the `setAFMode` line is
+cheap (bind-mount a remapped `libcameracustom.so`, `killall mediaserver`)
+and would answer whether any MTK reference profile gives a non-zero AF region
+count — i.e. whether AF can be fixed by profile choice at all, before anyone
+goes near the OTP path.
