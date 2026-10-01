@@ -26,7 +26,12 @@ WIFI_DRIVER_FW_PATH_AP := AP
 WIFI_DRIVER_FW_PATH_P2P := P2P
 
 # Consumerir
-MTK_IRTX_SUPPORT := true
+# Must be "yes", not "true": device/xiaomi/nikel/consumerir/Android.mk gates the
+# whole module definition on `ifeq ($(strip $(MTK_IRTX_SUPPORT)),yes)`. With
+# "true" the block was skipped, consumerir.mt6797.so was never built, and
+# ConsumerIrManager.hasIrEmitter() stayed false so IR remote apps hid their
+# "add remote" button.
+MTK_IRTX_SUPPORT := yes
  
 # Bluetooth
 BOARD_HAVE_BLUETOOTH := true

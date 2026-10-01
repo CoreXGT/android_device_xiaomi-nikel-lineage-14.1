@@ -40,7 +40,7 @@ sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-m
 repo init -u git://github.com/LineageOS/android.git -b cm-14.1
 repo sync
 
-# Device tree and vendor blobs
+# Clone device tree and vendor blobs
 cd rom_source
 git clone https://github.com/CoreXGT/android_device_xiaomi-nikel-lineage-14.1.git -b master device/xiaomi/nikel
 git clone https://github.com/CoreXGT/android_vendor_xiaomi_nikel.git -b master vendor/xiaomi/nikel
@@ -48,18 +48,21 @@ git clone https://github.com/CoreXGT/android_vendor_xiaomi_nikel.git -b master v
 # Apply out-of-tree patches (netd, frameworks/opt/net/wifi, etc.)
 cd device/xiaomi/nikel/patches && . apply.sh && cd -
 
+# Prepare for build
 source build/envsetup.sh
-# Jack server heap — REQUIRED on 8 GB machines (framework dex OOMs otherwise).
-# The build launches/restarts the Jack server from this env var
-# (see prebuilts/sdk/tools/jack_server_setup.mk).
-export ANDROID_JACK_VM_ARGS="-Dfile.encoding=UTF-8 -XX:+TieredCompilation -Xmx6144m"
+breakfast nikel
 export LC_ALL=C
 export TMPDIR=<tmp dir>
 export CCACHE_DIR=<cache dir>
+# Jack server heap — REQUIRED on 8 GB machines (framework dex OOMs otherwise).
+# The build launches/restarts the Jack server from this env var
+# (see prebuilts/sdk/tools/jack_server_setup.mk).
+export JACK_SERVER_VM_ARGUMENTS="-Dfile.encoding=UTF-8 -XX:+TieredCompilation -Xmx2g"
+export ANDROID_JACK_VM_ARGS="-Dfile.encoding=UTF-8 -XX:+TieredCompilation -Xmx2g"
 
 # --------------------------------------
 # Build
-breakfast nikel
+brunch nikel
 
 # or
 
@@ -68,11 +71,23 @@ export MAKEFLAGS="-j4"
 make otapackage -j4
 # --------------------------------------
 ```
+```bash
+# For manage jack-server
 
-> The Jack server's `~/.jack-server/config.properties` tweaks (max-service,
-> ports) are host-specific and NOT required — `ANDROID_JACK_VM_ARGS` above
-> already controls the heap and takes priority on every build. Skip them
-> unless you hit Jack OOM or port clashes on your machine.
+# Server list
+./prebuilts/sdk/tools/jack-admin list-server
+
+# Kill the server
+./prebuilts/sdk/tools/jack-admin kill-server
+pkill -f jack-server
+
+# Start the server
+./prebuilts/sdk/tools/jack-admin start-server
+
+# Show the server mmemory
+ps aux | grep jack-server | grep -o "\-Xmx[0-9a-z]*"
+```
+
 
 ### Build notes
 
@@ -88,6 +103,7 @@ make otapackage -j4
 - **Host toolchain**: `check_radio_versions.py` is Python 2 and flex-2.5.39
   breaks on glibc ≥ 2.27 — use
   `export PATH=<python2>/bin:$PATH LC_ALL=C`. **note**: My latest build using Ubuntu 18 LTS, so I haven’t had this problem
+  
 
 ## Feature Status
 

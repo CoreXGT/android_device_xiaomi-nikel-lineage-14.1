@@ -2625,3 +2625,126 @@ So, stated plainly:
   way. Its AWB/AE/AF parameters are wrong for this sensor, permanently.
 * Therefore §23.3 is not a stopgap pending a better blob — it is the only
   option available, and §13's green cast has no fix inside this tree.
+
+## 28. IR remote: the HAL was already written, never enabled (2026-10-01)
+
+### 28.1 Symptom
+
+An installed IR remote app (`com.duokan.phone.remotecontroller`) opens fine but has
+no "add remote" button, where the same app on other phones shows one.
+
+### 28.2 The hardware and driver are all present
+
+```
+/dev/irtx                crw-rw---- system system 245,0
+kernel symbols           irtx_probe, irtx_isr, switch_irtx_gpio, compare_irtx_code
+driver source            drivers/misc/mediatek/irtx/mt6797/mt_irtx.c
+DT (SoC, mt6797.dtsi)    irtx@1101d000, compatible = "mediatek,irtx",
+                         pwm_ch = <3>, clock-frequency = <26000000>
+kernel config            CONFIG_MTK_IRTX_PWM_SUPPORT=y
+ueventd.mt6797.rc:80     /dev/irtx  0660  system  system
+```
+
+`/dev/irtx` is owned by `system`, which is exactly what `system_server` runs as,
+so permissions are already correct.
+
+### 28.3 The stack is JNI-era, not HIDL
+
+`frameworks/base/services/core/java/com/android/server/ConsumerIrService.java`
+declares `native long halOpen()`, `native int halTransmit(long, int, int[])` and
+`native int[] halGetCarrierFrequencies(long)`. The JNI shim
+`frameworks/base/services/core/jni/com_android_server_ConsumerIrService.cpp` calls
+`hw_get_module(CONSUMERIR_HARDWARE_MODULE_ID, …)`. So no `hardware/interfaces/ir`
+is needed — which is fortunate, because that directory does not exist in this
+tree at all.
+
+`hasIrEmitter()` returns `mNativeHal != 0`, so with the module missing every app
+hides its IR UI. That is the actual reason the button is absent — nothing is
+wrong with the app.
+
+### 28.4 The MTK HAL already existed, in the device tree
+
+`device/xiaomi/nikel/consumerir/consumerir.c` (12 210 bytes, committed as
+`1e29b00`) is a complete implementation. Its waveform conversion, which had to be
+recovered from the driver, is:
+
+```c
+buffer_len = ceil(total_time / (float)32);      /* one bit per microsecond */
+for (i = 0; i < pattern_len; i++)
+    for (j = 0; j < pattern[i]; j++) {         /* pattern[] arrives in uS */
+        if (current_level) *(wave_buffer + int_ptr) |=  (1 << bit_ptr);
+        else               *(wave_buffer + int_ptr) &= ~(1 << bit_ptr);
+        bit_ptr++; if (bit_ptr == 32) { bit_ptr = 0; int_ptr++; }
+    }
+current_level = !current_level;
+ioctl(fd, IRTX_IOC_SET_CARRIER_FREQ, &carrier_freq);
+write(fd, (char *)wave_buffer, buffer_len * 4);
+```
+
+This matches the driver exactly and explains its otherwise odd constant:
+`PWM_MODE_MEMORY_REGS.HDURATION = 25` at a 26 MHz clock is 0.96 µs, i.e. one
+microsecond per bit. Its `IRTX_IOC_SET_CARRIER_FREQ` is `_IOW('R', 0, unsigned
+int)` = `0x40045200`, byte-identical to `IRTX_IOC_SET_CARRIER_FREQ` in the
+kernel's `mt_irtx.h`.
+
+### 28.5 Three gates were shut
+
+```
+device/xiaomi/nikel/board.mk:29            MTK_IRTX_SUPPORT := true
+device/xiaomi/nikel/consumerir/Android.mk  ifeq ($(strip $(MTK_IRTX_SUPPORT)),yes)
+```
+
+`true` is not `yes`, so the entire module definition was skipped. Then:
+
+* `device/xiaomi/nikel/consumerir/Android.mk` marks the module
+  `LOCAL_MODULE_TAGS := optional`, so even when defined it is installed only if
+  named in `PRODUCT_PACKAGES`. Nothing did.
+* `android.hardware.consumerir` was never installed; the AOSP file already exists
+  at `frameworks/native/data/etc/android.hardware.consumerir.xml` and was simply
+  not listed.
+
+Result: `/system/lib/hw/` had no `consumerir.*.so` at all.
+
+### 28.6 Fix — three lines, all three must land together
+
+| file | change |
+|---|---|
+| `board.mk` | `MTK_IRTX_SUPPORT := true` → `yes` |
+| `common.mk` | `PRODUCT_PACKAGES += consumerir.$(TARGET_BOARD_PLATFORM)` |
+| `permissions.mk` | install `android.hardware.consumerir.xml` into `system/etc/permissions` |
+
+They are not independent. `ConsumerIrService`'s constructor throws if the feature
+is declared but `halOpen()` returns 0, **and** if `halOpen()` returns non-zero
+while the feature is absent — either way `system_server` fails to boot:
+
+```java
+mNativeHal = halOpen();
+if (hasSystemFeature(FEATURE_CONSUMER_IR)) {
+    if (mNativeHal == 0) throw new RuntimeException("FEATURE_CONSUMER_IR present, but no IR HAL loaded!");
+} else if (mNativeHal != 0) {
+    throw new RuntimeException("IR HAL present, but FEATURE_CONSUMER_IR is not set!");
+}
+```
+
+### 28.7 Known, deliberate: SELinux
+
+`/dev/irtx` is labelled `device:s0` and this tree has no rule granting the
+`system` domain `device:chr_file`. Every transmit will therefore log
+
+```
+avc: denied { open } for … path="/dev/irtx" … permissive=1
+```
+
+which is allowed, because this ROM runs SELinux permissive — consistently with
+`ioctl_defines` and `ioctl_macros` being deleted from `system/sepolicy`
+(-2802 lines, see the tree-wide diff). Not worth an sepolicy edit right before a
+build for a denial that changes nothing.
+
+### 28.8 Not verified on hardware
+
+The device-side check could not run: `/dev/irtx` is `0660 system:system`, the adb
+shell is `uid=2000(shell)`, there is no `su`, and `adb root` is refused. Running
+MIUI's own `/bin/consumerird` from adb therefore failed at `open()` and produced
+no driver log — a misleading result, since the real HAL runs as `system`. The
+protocol itself is confirmed from source on both sides; what still needs hardware
+is whether a transmitter LED is physically present.

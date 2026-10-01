@@ -22,6 +22,14 @@ PRODUCT_PACKAGES += \
     libfmjni \
     FMRadio
 
+# Consumerir (IR remote)
+# The module in device/xiaomi/nikel/consumerir is tagged `optional`, so it is
+# skipped unless it is named here. Without it /system/lib/hw/consumerir.*.so is
+# absent, hw_get_module(CONSUMERIR_HARDWARE_MODULE_ID) fails, and
+# ConsumerIrManager.hasIrEmitter() returns false.
+PRODUCT_PACKAGES += \
+    consumerir.$(TARGET_BOARD_PLATFORM)
+
 # Filesystem management tools
 PRODUCT_PACKAGES += \
     e2fsck \
