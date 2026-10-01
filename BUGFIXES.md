@@ -1522,3 +1522,94 @@ this unit). Making AF work therefore means supplying a populated AF config —
 i.e. patching a struct inside `libcameracustom.so`, which needs MTK's
 `NVRAM_CAMERA_AF_CFG_STRUCT` layout and the address of `getAFParam`'s data.
 That is the remaining route, alongside the OTP route in 20.5.
+
+---
+
+## 21. Injecting a library into the camera stack without reflashing (2026-10-01)
+
+Built while attempting the OTP route (20.5). The technique is reusable for any
+experiment that needs code running inside `mediaserver`, and it produced one
+result that changes an earlier conclusion.
+
+### 21.1 The mechanism
+
+No NDK in this tree (`prebuilts/ndk` is source, not a prebuilt; the AOSP
+`arm-linux-androideabi-4.9` GCC has an empty sysroot), so a standalone binary
+cannot be built. A **shared object** needs no crt objects, and that is enough:
+
+```
+CL=prebuilts/clang/linux-x86/host/3.6/bin/clang      # --target=arm-linux-androideabi
+LD=prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-ld
+$CL --target=arm-linux-androideabi -fPIC -fno-builtin -c -O2 -o probe.o probe.c
+$LD -shared -o libcameracustom.so probe.o -L. -l:l.so   # -> DT_NEEDED /data/local/l.so
+adb shell "mount --bind /data/local/tmp/probe.so /system/lib/libcameracustom.so"
+adb shell "killall mediaserver"
+```
+
+Pieces that had to be right:
+
+- **Absolute-path DT_NEEDED works.** `bionic/linker/linker.cpp:1677`:
+  *"If the name contains a slash, we should attempt to open it directly and
+  not search the paths."* So `/data/local/l.so` is loadable without touching
+  `/system`. The DT_NEEDED string comes from the linked library's SONAME, so
+  the pushed copy had its `DT_SONAME` overwritten in place with
+  `/data/local/l.so` (18-byte slot, old value `libcameracustom.so`; the file
+  had to be named `l.so` for the host link).
+- **File offset != vaddr** in that library: `DT_STRTAB` is `0x9a60` as a vaddr
+  but the string lives at file offset `0x6a60`, i.e. `file = vaddr - 0x3000`.
+- **`mediaserver` is 32-bit** — only `system/lib/libcameracustom.so` is used.
+- `-fno-builtin` is required: without it clang turns a hand-written byte-loop
+  memset into `__aeabi_memset4`, which lives in libgcc and is not loaded.
+- `/data/local/tmp` is `drwxrwx--x shell shell`, so `mediaserver` cannot
+  create files there — pre-create the output file and `chmod 666`.
+- SELinux does not block any of this: every denial logged
+  `permissive=1` on this build.
+
+### 21.2 MIUI's libcameracustom DOES load into LOS's HAL3A
+
+This revises #9's "too risky to swap" note. With the probe in place of
+`libcameracustom.so`, the camera stack got all the way to:
+
+```
+dlopen failed: cannot locate symbol "_Z21cust_getFlashMaxIDutyiiiPiS_"
+               referenced by "/system/lib/libcam.hal3a.v3.so"
+```
+
+— i.e. 15 of the 16 symbols resolve from MIUI's library, and the only gap is
+`cust_getFlashMaxIDuty(int,int,int,int*,int*,int*)` (flash-calibration duty).
+Exporting a stub for that one symbol made the whole stack load. So the earlier
+"missing symbol may crash mediaserver" worry is wrong: the linker only needs
+the symbol to exist. Whether MIUI's tuning data is *usable* by HAL3A is still
+untested.
+
+### 21.3 S5K3L8_CAM_CALGetCalData is not a getter — it needs a request buffer
+
+Calling it with a poisoned buffer crashes deterministically:
+
+```
+Fatal signal 11 (SIGSEGV) ... fault addr 0x0544cf64
+  #00 /data/local/l.so (S5K3L8_CAM_CALGetCalData+627)
+```
+
+`+627` is `ldr.w r7, [sb, r4, lsl #2]`, and `r4` is loaded from the
+**caller's** buffer at `[r7]` in the prologue (`ldr r4, [r7]` at +0x5a). With
+`0xA5A5A5A5` in the buffer, that indexes ~2.7 GB past the 326-byte struct.
+Reproduced with the rear sensor powered and the preview running, so it is not
+a power/timing issue.
+
+Recovered protocol (from the same disassembly):
+
+- `fd = open(CAM_CALDeviceName())`, and `CAM_CALInit` is a 4-byte no-op stub.
+- `ioctl(fd, 0xc0146905, cfg)` where `cfg` is built on the stack as
+  `{ u32 A; u32 4; u32 caller_buf[0x20]; u32 caller_buf[0x24]; u32 &cfg;
+  char name[92] /* zeroed, then filled from the device name */ }`
+  (`A` comes from a PC-relative constant table, not from the caller).
+- A second `ioctl(fd, 0x20b00ff /* _IOW(0,0xff,2816) */, ...)` follows.
+- `CAM_CALDeviceName` is 20 bytes (returns a constant string) and
+  `CAM_CALInit` is 4 bytes — neither does real work.
+
+**What is still missing** is the caller's buffer layout, i.e. what
+`buf[0x00]`, `buf[0x20]` and `buf[0x24]` must contain. That is answerable
+offline by disassembling `S5K3L8_DoCamCalAWBGain(int,int,int,char*)` — its
+fourth argument is the buffer it fills before calling `GetCalData`. No device
+work needed for that step.
