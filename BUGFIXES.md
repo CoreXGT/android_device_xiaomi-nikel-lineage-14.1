@@ -1831,3 +1831,44 @@ a lens calibration, or (b) obtain an AF OTP/calibration source. Since
 (3) MIUI's working AF comes from its own HAL1 path, option (b) has no
 source on this device — the honest conclusion is that dead AF is a platform
 limitation here, not a tuning mistake.
+
+### 22.6 Eleven gates found; patching them does not start AF
+
+Continuing past §22.2. The AF-enable flag lives at `AfMgr + 0x5904` (the
+`CCTOP` = contrast-AF flag; note 32-bit load/store offsets are scaled by 4, so
+`0x904` in the instruction is byte offset `0x5904` from the object). Writers and
+readers were located by scanning for that scaled immediate:
+
+| site | what | action |
+|---|---|---|
+| `0xc7b14` | `AfMgr::setAFMode` early-returns when the flag is clear | `nop` |
+| `0xccc80` | `AfMgr::Start()`: a sensor-HAL virtual call (`[x2,#0x18]`) returning < 0 branches to the error path, which does `str wzr, [x21,#0x904]` — **AF disabled for the rest of the session** | `nop` (force the success path) |
+| `0xc82d4, 0xc83e4, 0xc8428, 0xc862c, 0xc86d4, 0xcaa78, 0xcada0, 0xcb418` | eight `cbz <flag>` guards, one of them the first instruction after `AfMgr::doAF()`'s prologue | all `nop` |
+
+`AfMgr::CCTOPAFEnable()` / `CCTOPAFDisable()` (20/20-byte functions) are the
+intended setters, and `AfMgr::Start()` writes the flag from six places.
+
+**Result after all eleven patches:** the HAL still logs nothing but
+`[AfAlgo0][setAFMode][Mode]4`, `doAF()` is never invoked, and no VCM traffic
+appears in `dmesg`. So the remaining gate is upstream, in the MtkCam
+`StateMgr` dispatch that decides per buffer whether the AF subsystem runs —
+a separate and much larger reversing job (`AfStateMgr::transitState` at
+`0xa6ff8` turned out to be only a 104-byte table setter, not the decision).
+
+Also relevant: everything in the AF chain is reached through `IAfMgr` /
+`IAfAlgo` vtables, so there are **no direct `bl` call sites** for
+`doAF`, `Start`, `setAFMode`, `UpdateState*` or `readOTP` — a plain
+caller scan finds nothing and a vtable-slot walk is required.
+
+**Verdict after this stage:** the AF chain is gated at least eleven times and
+the last gate sits in the state-machine dispatcher. Even past it, the
+algorithm has no lens calibration (kernel exports WB OTP only, unit has no AF
+data in NVRAM), so the expected end state is "AF runs but cannot focus".
+The patches are kept only as research artifacts:
+
+| file | md5 | contents |
+|---|---|---|
+| `lib3a.so.orig` | `5ab967b7` | stock |
+| `lib3a.so.af_mode4` | `347c8553` | gate 1 |
+| `libcam.hal3a.v3.so.af_flag_bypass` | `8c1f95af` | gate 2 |
+| `libcam.hal3a.v3.so.af_gates_open` | `957e41ff` | gates 3-11 |
