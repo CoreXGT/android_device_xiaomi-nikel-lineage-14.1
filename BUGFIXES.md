@@ -1692,3 +1692,49 @@ Tooling note: the probe's output file must be `touch`ed and `chmod 666`-ed
 **before** the run — `mediaserver` cannot create files in
 `/data/local/tmp`, and a bare `chmod` on a non-existent path silently fails,
 which looks exactly like "the constructor never ran".
+
+### 21.6 The zero gains come from NVRAM, not from libcameracustom
+
+Using the same injection to call the tuning getters inside mediaserver, the
+live tuning data is **not** zero:
+
+```
+AWB_PARAM E1/E2/E4/E8  (4 separate structs, identical contents)
+  +00: 00 02 00 00 (0x200=512)  ff 1f 00 00 (0x1fff=8191)  00 01 00 00 (256)  13 00 00 00 (19)
+  +10: 08 00 00 00 (8) then 0x64=100 repeated, with 0x42=66 / 0x21=33 / 0x01 blocks
+AWB_PARAM2_default / _s5k5e8yx / _s5k5e2ya : every field 0x200 = 512 (neutral)
+AF_PARAM : populated (0x1,0x1,0x2,0x3,0x3,0x4b0,...)
+```
+
+So the AWB tables shipped in `libcameracustom.so` are populated. The
+`AppTsf: Not Valid AWB Golden Gain R(0) G(0) B(0)` / `Unit Gain` warning
+therefore originates from the **NVRAM `CAMERA_3A` struct** — which
+`getTuningFromNvram` reads and which is empty on this unit (see the nvram
+section above). The HAL does not backfill those specific fields from
+`libcameracustom`, so they stay zero and get replaced by the neutral 512.
+
+**Consequence for any fix:** writing the tuning has to happen in NVRAM, not in
+the shared library. There is no writer on the device (`nvram_daemon` only; no
+`nvram` CLI), `/nvdata/APCFG/APRDCL/` contains `AUXADC`, `FILE_VER`,
+`HWMON_*`, ... but no `CAMERA_*` file at all, and the factory never created one.
+Two ways forward, both unproven:
+
+1. Create `/nvdata/APCFG/APRDCL/CAMERA_3A` from TWRP with a hand-built
+   `NVRAM_CAMERA_3A_STRUCT` (needs the correct version header and struct
+   layout, and correct FILE_VER entry).
+2. Drive MTK's FOK interface (`/dev/nvram` via `libnvram`) from an injected
+   library — needs the CAMERA_3A FOK key, which is MTK-internal.
+
+Either way there is still the problem from 21.4: **valid gain values for the
+s5k3l8 do not exist anywhere on this device or in the ROM**, so there is
+nothing correct to write yet. Empirical per-unit gains (photograph the same
+dark scene under MIUI and LOS and derive the ratio) remain the only source.
+
+### 21.7 Two more probe pitfalls
+
+- `adb push` over a **bind-mounted file** does not update the mount: the mount
+  holds the old inode. Always `umount -l` + `mount --bind` again after pushing
+  a new build, otherwise you silently keep testing the previous one.
+- Verify the build actually produced a new binary before blaming the device
+  (the chained `clang && ld && adb push` swallowed one failure and the "new"
+  run was the previous probe).
