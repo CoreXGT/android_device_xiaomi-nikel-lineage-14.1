@@ -28,6 +28,28 @@ Note: the NetworkTraffic fix only takes effect through SystemUI
 (cmsdk is statically linked into SystemUI) — flashing just
 `org.cyanogenmod.platform.jar` is not enough.
 
+## Camera AF (bug #24)
+
+Two things, neither of them an AOSP source patch:
+
+1. `rootdir/init.mt6797.rc` (already in this tree) — grants `system:camera` on
+   `/dev/MAINAF`, `/dev/SUBAF`, `/dev/MAIN2AF`, `/dev/GAF001AF`,
+   `/dev/GAF002AF`, `/dev/GAF008AF`. Without it `mediaserver` cannot open the
+   VCM motor nodes and autofocus never starts.
+
+2. `patches/camera-af/patch_lensid.py` — patches the **32-bit**
+   `vendor/xiaomi/nikel/system/lib/libcam.hal3a.v3.so` so `MCUDrv::lensSearch`
+   matches the sensor id and `AfMgr`'s AF-enable flag is set. The preblob in
+   `vendor/xiaomi/nikel` is already patched; re-apply or verify with:
+
+   ```
+   python3 patches/camera-af/patch_lensid.py --check \
+       ../vendor/xiaomi/nikel/system/lib/libcam.hal3a.v3.so
+   ```
+
+   Read `patches/camera-af/README.md` before touching any MTK camera library on
+   this device: `mediaserver` is 32-bit and loads `system/lib/`, not `lib64/`.
+
 ## Also required (not a patch — binary replacement)
 
 `external/chromium-webview/prebuilt/{arm,arm64}/webview.apk` must be
@@ -50,3 +72,4 @@ cp <tmp>/webview.apk external/chromium-webview/prebuilt/arm64/webview.apk
 |---|---|---|
 | `cmsdk/0001-cmsdk-NetworkTraffic-proc-net-dev-fallback.patch` | vendor/cmsdk | #18 status bar speed always 0 |
 | `audiofx/0001-AudioFX-onStartCommand-guard.patch` | packages/apps/AudioFX | #15 AudioFx has stopped |
+| `camera-af/patch_lensid.py` + `rootdir/init.mt6797.rc` | vendor blobs (binary) | #24 rear camera AF never starts |

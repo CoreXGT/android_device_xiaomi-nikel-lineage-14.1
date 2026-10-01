@@ -1872,3 +1872,162 @@ The patches are kept only as research artifacts:
 | `lib3a.so.af_mode4` | `347c8553` | gate 1 |
 | `libcam.hal3a.v3.so.af_flag_bypass` | `8c1f95af` | gate 2 |
 | `libcam.hal3a.v3.so.af_gates_open` | `957e41ff` | gates 3-11 |
+
+## 23. Autofocus: the previous stage patched the wrong library (2026-10-01)
+
+§20 and §22 concluded that dead AF was "a platform limitation on this ROM".
+That conclusion was wrong, and so was every patch in §22. Two independent
+defects were sitting in plain sight.
+
+### 23.0 `mediaserver` is 32-bit — it never loads `lib64`
+
+```
+$ adb shell 'grep libcam.hal3a /proc/$(pidof mediaserver)/maps'
+/system/lib/libcam.hal3a.v3.so
+```
+
+Both `system/lib/` and `system/lib64/` ship a `libcam.hal3a.v3.so`, and both
+export the same `MCUDrv` / `AfMgr` symbol names, so a patch aimed at the wrong
+copy is indistinguishable from a correct one until you check `/proc/*/maps`.
+§22 patched the lib64 copy in its entirety (11 gates, two libraries) and none of
+it ever executed. All of it is kept in `cam_af/` as research artifacts only;
+the lib64 prebuilt is back to stock (`md5 1e0823e3`).
+
+Correct targets for this device:
+
+| library | path | notes |
+|---|---|---|
+| HAL3A | `/system/lib/libcam.hal3a.v3.so` | 32-bit ARM/Thumb, 912 KB, delta vaddr-file = `0x8000` |
+| 3A algorithm | `/system/lib/lib3a.so` | 32-bit ARM |
+| custom | `/system/lib/libcameracustom.so` | lens + CAM_CAL tables |
+
+### 23.1 The VCM / AF motor nodes were 0600 root:root
+
+```
+crw------- 1 root root 229, 0 /dev/MAINAF
+crw------- 1 root root 227, 0 /dev/SUBAF
+crw-rw---- 1 system camera 242, 0 /dev/camera-isp
+crw-rw---- 1 system camera 238, 0 /dev/kd_camera_flashlight
+```
+
+`mediaserver` runs as uid 1006 (`camera`). devtmpfs creates every node
+`0600 root:root`, and this ROM widens them from the `chmod`/`chown` block in
+`rootdir/init.mt6797.rc`. That block listed every camera node **except** the AF
+ones — it has `/dev/DW9714AF` (another MTK project's VCM) but not this phone's
+`/dev/MAINAF`. So `MCUDrv`'s `open()` failed, `m_fdMCU` stayed invalid, and the
+lens initialisation silently no-opped. The HAL's own error strings
+(`Err: [mcuIOC_S_SETDRVNAME] please check kernel driver`) never appeared
+because nothing got far enough to call them.
+
+**Fix:** add the six node names the HAL3A knows about to that block —
+`MAINAF`, `SUBAF`, `MAIN2AF`, `GAF001AF`, `GAF002AF`, `GAF008AF` — as
+`chmod 0660` + `chown system camera`. Verified live: `chmod 666` on the two
+nodes was enough to make the difference, and it survives as an init rule so it
+no longer depends on an `adb shell` after every reboot.
+
+### 23.2 The real gate: the lens-table lookup never matches
+
+`AfMgr::CCTMCUNameinit(int)` (0x81cf0, 300 bytes) in the **32-bit** HAL3A:
+
+```
+0x081d30 blx NSCam::IHalSensorList::get()
+0x081d44 tbb [pc, ip]              ; sensorDev - 1 -> 4 cases
+0x081d60 blx r3                    ; vtable slot 9 (u32 mode, u32* out)
+0x081d9e blx MCUDrv::lensSearch     ; (dev, CurrSensorId)
+0x081da6 blx MCUDrv::getCurrLensID ; -> table[CurrLensIdx].LensId
+0x081daa movw r1, #0xffff
+0x081db2 subs r3, r0, r1
+0x081dba movne r3, #1              ; <-- the gate
+0x081dc0 str  r3, [r4, #0x58b8]    ; AfMgr + 0x58b8 = AF_FLAG
+```
+
+`MCUDrv::lensSearch(uint dev, uint sensorId)` (0xb949c, 796 bytes) compares
+`sensorId` against a 16-entry table that `LensCustomGetInitFunc()` fills in from
+`libcameracustom` at runtime:
+
+```
+LensMCU[LensInitTable-0][SensorId]0xffff,[LensId]0xffff
+LensMCU[LensInitTable-1][SensorId]0x0135,[LensId]0x9714
+LensMCU[LensInitTable-2][SensorId]0x3103,[LensId]0x9714
+LensMCU[LensInitTable-3][SensorId]0x0258,[LensId]0x0005
+```
+
+The sensor HAL reports `MainSensorIdx = 0x5e20`, which is in **no** entry:
+
+```
+CAM_CUS_MSDK GetCameraCalData(MainSensorIdx=5e20) Enter
+CAM_CUS_MSDK SensorId == pstSensorInitFunc[2].SensorId=5e20   <-- libcameracustom's own table matches
+CAM_CUS_MSDK SensorId != pstSensorInitFunc[1].SensorId=3103
+```
+
+So the two vendor blobs disagree: `libcameracustom` knows `0x5e20`, the
+`MCUDrv` lens table does not. With no match, `m_u4CurrLensIdx_main` keeps its
+default (the last entry whose `LensId` is `0xffff`, i.e. 0),
+`getCurrLensID()` returns `0xffff`, and `AF_FLAG` is 0 for the whole session.
+
+### 23.3 The patch
+
+One 4-byte Thumb-2 instruction, replacing the loop that computes the *default*
+index (which on this device is already 0, so removing it is behaviour-neutral;
+`r4` is reloaded with `0xffff` immediately afterwards):
+
+| file offset | vaddr | before | after |
+|---|---|---|---|
+| `0x0b1542` | `0xb9542` | `10 2b` `f5 d1` — `cmp r3,#0x10` ; `bne 0xb9532` | `43 f2 03 15` — `movw r5, #0x3103` |
+
+`0x3103` is the S5K3L8 chip ID, so table entry 2 is the correct match for this
+phone; entries 1 and 2 share `LensId 0x9714` anyway, so the resulting AF
+behaviour is identical either way. Reverting is writing `10 2b f5 d1` back.
+
+| file | md5 | contents |
+|---|---|---|
+| `cam_af/libcam.hal3a.v3.32.stock` | `9af2c96b` | stock 32-bit HAL3A |
+| `cam_af/libcam.hal3a.v3.32.patched` | `47b9883f` | + lens-id match |
+
+The vendor preblob `vendor/xiaomi/nikel/system/lib/libcam.hal3a.v3.so` is
+patched, and `patches/camera-af/patch_lensid.py` reproduces it from stock and
+verifies it (`--check`).
+
+### 23.4 What the patch actually bought — measured, not assumed
+
+| observation | before | after |
+|---|---|---|
+| `MCUDrv` lens lookup | `CurrLensIdx 0` | `LensMCU[idx]2 [CurrSensorId]0x3103,[CurrLensIdx]0x0002` |
+| AF commands reaching the algorithm | only `setAFMode` | `Cmd_triggerAF`, `Cmd_lockAF`, `Cmd_unlockAF`, `Cmd_cancelAF` |
+| 3A state machine | never enters AF | `aaa_state_mgr: StateCameraPreview --> StateAF` (6 transitions over 3 focus taps) |
+| photo capture | works | works (no regression) |
+
+The `StateAF` transition count is the honest headline: **0 occurrences before the
+patch, 6 after**, across otherwise identical log captures.
+
+### 23.5 What is still broken
+
+`doAF()` still never runs, so the motor is still never commanded.
+
+```
+$ adb shell 'ls /proc/$(pidof mediaserver)/task/*/comm'   # 38 tasks
+3ATHREAD  AESenThd  F858THREAD  CamClient@Previ  ...  — no AFthread
+```
+
+`AfMgr` has `StateCAF` / `StateTAF` states and
+`ThreadRawImp::enableAFThread(AfStateMgr*)` (0x656d4, 148 bytes) exists, but
+it obtains its thread from `NS3A::IEventIrq::createInstance()` rather than
+`pthread_create`, and it never logs — so either it is not reached or it returns
+NULL. The 3A state machine reaches `StateAF` and leaves again without processing
+a single buffer. There is no camera IRQ in `/proc/interrupts` either; the HAL's
+`HwEventIrq` is built around the `AFIrq` / `HwIRQ3A` names.
+
+That is the next investigation, and unlike §22 it can be done against the
+library that actually runs.
+
+### 23.6 Corrections to earlier sections
+
+* §20's "AF is a platform limitation on this ROM" — **retracted.** At least two
+  concrete bugs were involved (node permissions, lens-table mismatch), and both
+  are fixed. The no-AF-OTP / empty-NVRAM findings from §20 still stand, but as
+  a statement about calibration quality, not about AF being unable to run.
+* §22's eleven gates and their addresses are lib64 addresses. They describe a
+  binary that is never loaded. The 32-bit equivalents are different code.
+* §22's "there are no direct `bl` call sites, a vtable-slot walk is required" is
+  true but was used to justify stopping; with the 32-bit library the same scan
+  does resolve `MCUDrv::lensSearch` -> `AfMgr::CCTMCUNameinit` via the ARM PLT.

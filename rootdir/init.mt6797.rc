@@ -322,6 +322,15 @@ on post-fs-data
     chmod 0660 /dev/kd_camera_hw_bus2
     chmod 0660 /dev/DW9714AF
     chmod 0660 /dev/CAM_CAL_DRV
+    # VCM / AF motor nodes (BUGFIXES #24). These are the node names the HAL3A
+    # MCUDrv opens. devtmpfs creates them 0600 root:root, so without these rules
+    # mediaserver (uid 1006 "camera") cannot open them and AF stays dead.
+    chmod 0660 /dev/MAINAF
+    chmod 0660 /dev/SUBAF
+    chmod 0660 /dev/MAIN2AF
+    chmod 0660 /dev/GAF001AF
+    chmod 0660 /dev/GAF002AF
+    chmod 0660 /dev/GAF008AF
 
     chown system camera /dev/camera-isp
     chown system camera /dev/camera-fdvt
@@ -330,6 +339,12 @@ on post-fs-data
     chown system camera /dev/kd_camera_hw_bus2
     chown system camera /dev/DW9714AF
     chown system camera /dev/CAM_CAL_DRV
+    chown system camera /dev/MAINAF
+    chown system camera /dev/SUBAF
+    chown system camera /dev/MAIN2AF
+    chown system camera /dev/GAF001AF
+    chown system camera /dev/GAF002AF
+    chown system camera /dev/GAF008AF
 
     # SMI
     chmod 0660 /dev/MTK_SMI
