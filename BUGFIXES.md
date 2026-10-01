@@ -2417,3 +2417,126 @@ Two consequences worth stating plainly:
 * **The correct fix is the right blob, not a smaller patch.** Making MIUI's
   `libcameracustom.so` loadable against the 7.1 framework is the next piece of
   work; until then §23.3 stays in as the mitigation.
+
+## 27. Following up §26: the load blocker is one symbol, and the tuning blob is IMX258's
+
+### 27.1 The missing symbol was the whole load failure — proven
+
+§26.4 guessed at `_Z21cust_getFlashMaxIDutyiiiPiS_` under `BIND_NOW`. Tested rather
+than guessed: instead of adding a symbol to MIUI's blob, redirect LOS's HAL3A so
+it stops importing a name that blob does not have. The import is a
+`R_ARM_JUMP_SLOT` entry in `.rel.plt`; only its `r_info` symbol index needs to
+change.
+
+```python
+# in system/lib/libcam.hal3a.v3.so (.rel.plt)
+reloc[2172] off=0x000e3b84  r_info 0x00011316 -> 0x00008f16
+#                    _Z21cust_getFlashMaxIDutyiiiPiS_  ->  _Z17cust_isNeedAFLampiii
+```
+
+Eight bytes of `libcam.hal3a.v3.so`, nothing else touched. Result, with MIUI's
+`libcameracustom.so` in place:
+
+```
+before:  maps = libcameracustom? NO  halsensor? NO  lib3a? NO  camalgo? NO  hal3a? NO
+after :  maps = libcameracustom yes  halsensor yes  lib3a yes  camalgo yes  hal3a yes
+         E CameraService: camera hardware module doesn't exist  ->  gone
+```
+
+All 13 consumers' symbol needs are satisfiable once that one import goes away, so
+the MTK stack loads whole. **§26.4's suspect is confirmed.** The redirect is a
+test crutch, not a fix — it mis-binds a call with a different signature — but it
+is what made the rest of this section observable.
+
+### 27.2 With the blob loaded, the sensor is finally identified correctly — and then 3A stops
+
+```
+baseline (this tree): HAL3A asks for ..._SENSOR_DRVNAME_IMX258_MIPI_RAW
+MIUI blob:            HAL3A asks for ..._SENSOR_DRVNAME_S5K3L8_MIPI_RAW_NEW
+```
+
+The MIUI blob is read correctly and the sensor is finally the right one. The
+blob in this tree is IMX258 / S5K3P3SX / S5K5E2YA tuning data — the `0x258` in
+`pstSensorInitFunc[]` is literally the IMX258 sensor id, and IMX258 is what the
+HAL picks at runtime. Nothing to do with nikel.
+
+It also enumerates properly, which it never does with this tree's blob:
+
+```
+[enumDeviceLocked] i4DeviceNum=2
+[enumDeviceLocked] [0x00] ... facing:0 orientation=90      <- back
+[enumDeviceLocked] [0x01] ... facing:1 orientation=270     <- front
+```
+
+Then it dies before AF: `AFv2` never appears (baseline: 48 lines), no preview,
+no capture. It stops right after
+`CamProfile}[CamDeviceManagerBase::getNumberOfDevices] : (0-th) ===> [start-->now: 250 ms]`
+with no error on any level.
+
+### 27.3 The static-metadata warnings are pre-existing noise, not a regression
+
+MIUI's blob triggers far more of them (208 "not found" of 224 attempts, against
+96 of 150 in the baseline), which looked alarming until the counts were split by
+outcome:
+
+```
+constructCustStaticMetadata_* returning status[0]   baseline: 0     MIUI blob: 0
+```
+
+**Every** `impConstructStaticMetadata_by_SymbolName` lookup fails in both
+configurations, including the working one. The strings are in none of the four
+libraries involved (`libcam.hal3a.v3.so`, `libcameracustom.so`, `libcamalgo.so`,
+`lib3a.so` — byte-level search, all zero), so the name is assembled at runtime
+and resolved elsewhere. The volume difference just reflects HAL3A asking about
+the S5K3L8 rather than the IMX258. Ignore these warnings; they are not the
+signal.
+
+### 27.4 No correct tuning blob exists in any local ROM
+
+| source | `libcameracustom.so` | sensors | S5K3L8 |
+|---|---|---|---|
+| this tree (samarv) | `1b89c679`, 10 551 236 B | IMX258, S5K3P3SX, S5K5E2YA | 0 |
+| `madOS_7.1.2_apollo_lite` | `7928b6b0`, 10 551 236 B | + S5K5E8YX | 0 |
+| MIUI V10.2.1.0 nikel | `7a2db01a`, 20 795 700 B | S5K3L8 ×5, OV13853, … | 44 |
+| `HP/RedN4` project | `da44d012`, 20 795 700 B | same set | 44 |
+
+- madOS is byte-for-byte the same size as ours with one extra sensor and still no
+  S5K3L8 — it is the same upstream MTK tuning blob. Its `lib3a.so` is *identical*
+  to ours (`5ab967b7`), confirming our tree ships that base unmodified.
+- `HP/RedN4` is this same ROM built elsewhere (its README is "LineageOS 14.1 for
+  Xiaomi Redmi Note 4 MTK (nikel)"). Its 20 795 700 B blob is the same size as
+  MIUI's and differs in 51% of 4 K blocks — the same 6.0-era build with different
+  data, and equally free of `constructCustStaticMetadata` strings. No better.
+- MIUI's own nikel image is not what its name says: `ro.build.version.sdk=23`,
+  `release=6.0`, fingerprint `6.0/MRA58K/V10.2.1.0.MBFMIXM`. A converted 6.0-era
+  ROM. That is why its tuning blob cannot finish 3A init against a 7.1 HAL3A.
+
+### 27.5 Where this leaves the AF fix
+
+Bridging two MTK camera framework generations — making a 6.0-converted tuning
+blob complete 3A init on a 7.1 HAL3A — is a project, not a patch, and there is no
+correct-generation blob anywhere on this machine to start from. Getting one means
+pulling stock MIUI for this device over the network.
+
+So §23.3 stays as the shipped mitigation, but its standing changed: it is no
+longer "a patch for a mysterious mismatch". It is a workaround for a **wrong
+vendor blob**, now demonstrated rather than inferred:
+
+* `libcameracustom.so` here is IMX258 tuning data for a phone this tree is not.
+* Swap in a blob that knows S5K3L8 and the sensor is identified correctly —
+  proven, in §27.2.
+* §23.3's four bytes then only have to point the lens table at the entry the
+  right blob would have supplied itself.
+
+Same blob, same wrongness, for the §13 green cast: the AWB gains in play are
+IMX258's.
+
+### 27.6 Device state
+
+Restored and verified: LOS blobs untouched (`libcameracustom.so 1b89c679`,
+`libcam.halsensor.so 92cf1101`, `libcam.hal3a.v3.so 47b9883f` = the §23.3
+lens-id patch), `/dev/MAINAF` 666, `MtkCam` 403 lines, `AFv2` 48 lines,
+`CurrLensIdx 0x0002`, no hardware-module error.
+
+MIUI blobs kept at `/mnt/System/ROM-nikel/work/miui_camera_blobs/`.
+`/tmp/opencode/hal_noflash.so` is the §27.1 redirect build (not for shipping).
