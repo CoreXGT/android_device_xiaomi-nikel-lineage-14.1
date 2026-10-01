@@ -122,6 +122,7 @@ ps aux | grep jack-server | grep -o "\-Xmx[0-9a-z]*"
 | Voice calls | ❌ Broken | MD3 speech crash, known issue, BUGFIXES.md #8 |
 | Fingerprint scanner | ✅ Fixed | Goodix + Kinibi TEE port, BUGFIXES.md #10b/#10b-c |
 | FM radio | Not verified | |
+| IR remote | ✅ Fixed | consumerir HAL was in the tree but never built — three gates, BUGFIXES.md #28. Not yet verified on hardware |
 
 ## Kernel note
 
