@@ -50,7 +50,6 @@ cd device/xiaomi/nikel/patches && . apply.sh && cd -
 
 # Prepare for build
 source build/envsetup.sh
-breakfast nikel
 export LC_ALL=C
 export TMPDIR=<tmp dir>
 export CCACHE_DIR=<cache dir>
@@ -60,7 +59,24 @@ export CCACHE_DIR=<cache dir>
 export JACK_SERVER_VM_ARGUMENTS="-Dfile.encoding=UTF-8 -XX:+TieredCompilation -Xmx2g"
 export ANDROID_JACK_VM_ARGS="-Dfile.encoding=UTF-8 -XX:+TieredCompilation -Xmx2g"
 
-# --------------------------------------
+# -----------------------------------------------------------------------------
+#                                       BUILD
+#
+#   breakfast nikel user     -> lunch lineage_nikel-user       <- build this
+#   breakfast nikel          -> lunch lineage_nikel-userdebug  <- debug only
+#   brunch nikel            == breakfast nikel + mka bacon
+#                             (mka bacon == mka otapackage)
+#
+# `breakfast` with no second argument defaults to **userdebug**, which sets
+# ro.debuggable=1 and makes adbd run as root (uid 0). That is what breaks
+# scrcpy's copy/paste — a root caller is rejected by ClipboardService with
+#   SecurityException: Calling uid 0 does not own package com.android.shell
+# A property of the caller, not a scrcpy bug — see BUGFIXES.md #29. Pass
+# `user` explicitly for anything you intend to flash and keep.
+
+breakfast nikel user
+
+# -----------------------------------
 # Build
 brunch nikel
 
@@ -69,7 +85,8 @@ brunch nikel
 # Build otapackage only with 4 jobs
 export MAKEFLAGS="-j4"
 make otapackage -j4
-# --------------------------------------
+# -----------------------------------
+# -----------------------------------------------------------------------------
 ```
 ```bash
 # For manage jack-server

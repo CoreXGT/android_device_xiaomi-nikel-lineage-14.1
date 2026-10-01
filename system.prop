@@ -70,7 +70,13 @@ keyguard.no_require_sim=true
 camera.disable_zsl_mode=1
 persist.debug.wfd.enable=1
 
-# ADB enabled by default
-ro.debuggable=1
-ro.adb.secure=0
-persist.sys.usb.config=adb
+# USB function at boot. Deliberately NOT "adb": init.usb.rc starts adbd as soon
+# as sys.usb.config becomes adb, so listing it here is what made ADB come up
+# enabled on every boot. Use mtp for file transfer only; ADB can still be turned
+# on by hand from Developer options, and needs an RSA fingerprint
+# (ro.adb.secure=1, set in device.mk).
+# Do NOT add ro.debuggable/ro.adb.secure here: a _userdebug build injects
+# ro.debuggable=1 itself, and ADB is then root (uid 0), which is what breaks
+# scrcpy's clipboard -- ConsumerIrService and ClipboardService both reject a
+# caller that does not own com.android.shell. Build lineage_nikel_user.
+persist.sys.usb.config=mtp

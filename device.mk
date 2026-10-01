@@ -77,9 +77,12 @@ PRODUCT_COPY_FILES += \
     $(LOCAL_PATH)/configs/thermal/.thermal_policy_00:system/etc/.tp/.thermal_policy_00
 
 # Debug
-ADDITIONAL_DEFAULT_PROPERTIES += ro.adb.secure=0
-ADDITIONAL_DEFAULT_PROPERTIES += ro.secure=0
-ADDITIONAL_DEFAULT_PROPERTIES += ro.debuggable=1
+# These used to force ro.debuggable=1 / ro.adb.secure=0 / ro.secure=0, which
+# made ADB come up enabled and running as root. Left unset on purpose so the
+# values follow the build type: lineage_nikel_user gives a stock-secure
+# ro.debuggable=0, lineage_nikel_userdebug still gives a root shell for
+# debugging. See system.prop for the USB side.
+ADDITIONAL_DEFAULT_PROPERTIES += ro.adb.secure=1
 
 # Optimization
 PRODUCT_PROPERTY_OVERRIDES += \

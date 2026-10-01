@@ -13,40 +13,58 @@ Bug diagnostics use these code paths repeatedly:
 
 ## Status overview
 
-| # | Bug | Status | Section |
+| # | Bug | Status | Where |
 | :--- | :--- | :--- | :--- |
-| 0 | Rear camera HAL failed to load | ✅ FIXED | #0 |
-| 1 | SD card never mounted | ✅ FIXED | #1 |
-| 2 | Mobile data (LTE) dead | ✅ FIXED | #2 |
-| 3 | Sensors registered but no data | ✅ FIXED | #3 |
-| 4 | Hotspot 2.4 GHz dies | ✅ FIXED | #4 |
-| 5 | Hotspot 5 GHz rejected by framework | ✅ FIXED | #5 |
-| 6 | Boot image repacking | ✅ document/tooling | #6 |
-| 7 | Misc build/boot fixes | ✅ FIXED | #7 |
-| 10 | Video recording fails | ✅ FIXED | #10 |
-| 12 | **Front camera never enumerated** | ✅ **FIXED** | #12 |
-| 14 | **Off-charge bootloop (MI logo repeats when charging while off)** | ✅ **FIXED (2026-09-19)** | #14 |
-| 8 | Voice calls crash C2K modem (MD3) | ❌ NOT FIXED (community-wide) | #8 |
-| 8f | — #8 single-variable bisect: 6 axes cleared | ✅ documented | #8f |
-| 19 | 4 build-integrity defects found while chasing #8 (`md_log_config` missing, `audio_param/b6a` not copied, MIUI cannot boot on CM14.1 `/data`, MTK MAL blobs absent) | ❌ NOT FIXED | #19 |
-| 13 | Rear camera green cast at night / low light | ✅ FIXED (2026-09-14) | #13 |
-| 15 | AudioFx has stopped (frequent, especially while ringing) | ✅ FIXED (2026-09-21) | #15 |
-| 16 | SMS (Messaging) app crashes when opening a message | ✅ FIXED (2026-09-21) | #16 |
-| 17 | AOSP Browser crashes on open (Firefox works) | ✅ FIXED (2026-09-21) | #17 |
-| 10b | Fingerprint scanner | ❌ NOT FIXED | #10b |
-| 11 | Hotspot 5 GHz DFS channels | ⚠️ minor open | #11 |
+| 0 | Rear camera HAL failed to load | ✅ FIXED | §0 |
+| 1 | SD card never mounted | ✅ FIXED | §1 |
+| 2 | Mobile data (LTE) dead | ✅ FIXED | §2 |
+| 3 | Sensors registered but no data | ✅ FIXED | §3 |
+| 4 | Hotspot 2.4 GHz dies | ✅ FIXED | §4 |
+| 5 | Hotspot 5 GHz rejected by framework | ✅ FIXED | §5 |
+| 6 | Boot image repacking | ✅ documented | §6 |
+| 7 | Misc build/boot fixes | ✅ FIXED | §7 |
+| 8 | Voice calls crash C2K modem (MD3) | ❌ NOT FIXED (community-wide) | §8, §8f, §10b-e, §19.6 |
+| 10 | Video recording fails | ✅ FIXED | §10 |
+| 10b | Fingerprint scanner | ✅ FIXED | §10b, §10b-d |
+| 10b-c | Goodix enroll error 1058 | ⚠️ open — TEE gatekeeper missing | §10b-c |
+| 11 | Hotspot 5 GHz DFS channels | ⚠️ minor open | §11 |
+| 12 | **Front camera never enumerated** | ✅ **FIXED** | §12 (supersedes §9, §9b) |
+| 13 | **Rear camera green cast at night** | ✅ **FIXED** (3A profile remap, measured) | §13 |
+| 14 | **Off-charge bootloop** | ✅ **FIXED (2026-09-19)** | §14 |
+| 15 | AudioFx has stopped | ✅ FIXED (2026-09-21) | §15 |
+| 16 | SMS (Messaging) app crashes | ✅ FIXED (2026-09-21) | §16 |
+| 17 | AOSP Browser (Jelly) crashes on open | ✅ FIXED (2026-09-21) | §17 |
+| 18 | Status bar network speed stuck at 0 | ✅ FIXED (2026-09-22) | §18 |
+| 19 | Build-integrity defects found while chasing #8 | ❌ NOT FIXED | §19 |
+| 20 | Rear-camera AF dead + low-light cast — full diagnosis | 🔍 diagnosis | §20, §22 |
+| 21 | Injecting a library into the camera stack without reflashing | ✅ technique | §21 |
+| 22 | AF dead: two gates patched, one still open | 🔍 negative result | §22 |
+| 23 | **Rear-camera AF never starts** | ⚠️ **PARTIAL** — AF engages, does not converge | §23, §24, §25, §27.8 |
+| 24 | The AF motor chain, mapped end to end | ✅ documented | §24 |
+| 25 | VCM open proven; gdb Thumb dead end | ✅ documented | §25 |
+| 26 | Camera tuning blob is for the wrong sensor | 🔍 root cause | §26, §27 |
+| 27 | Load blocker is one symbol; blob is IMX258's | 🔍 root cause, **§27.8's dead-end evidence voided — see §30** | §27, §30 |
+| 28 | **IR remote: HAL never enabled** | ✅ FIXED (not verified on hardware) | §28 |
+| 29 | **ADB ran as root → scrcpy clipboard dead** | ✅ FIXED (needs a `user` build) | §29 |
+| 30 | **Audit of §0/§13/§23/§27 against the tree** | 🔍 2 corrections, 1 voided dead-end | §30 |
 
-Note: older front-camera sections #9 / #9a–#9e / #9b record the
-investigation history; several of their interim conclusions were later
-proven WRONG and are superseded by #12. Read them only for "what was
-ruled out", not for the current status.
+**Two things are commonly misread here:**
 
-**Read §8 before touching the call crash.** It carries an explicit
-"do not re-test these" list, and §8f extends it with a controlled
-single-variable bisect that cleared six more axes (kernel, IMS/VolTE props,
-35 telephony props, audio-param config, the `inotify` loop, SIM2 state).
-Section #10b-e is retained but its original "fixed" claim is **refuted** — see
-the status correction at the top of that section.
+* **§13 is fixed** (green cast) — the 3A profile remap, measured at night
+  G\*2/(R+B) = 1.68, the best of the full-resolution profiles tried. An earlier
+  draft of §27.8 wrongly claimed it was unfixable in this tree; that has been
+  retracted in place.
+
+* **§23 is partial, not fixed.** The gating bugs are gone and AF now engages,
+  runs a full search cycle and times out (§23.7), but the lens never reaches
+  focus. The search parameters come from the IMX258-sourced profile, so range
+  and thresholds do not match this lens (§27.8).
+
+**Read §8 before touching the call crash.** It carries an explicit "do not
+re-test these" list, §8f extends it with a six-axis single-variable bisect, and
+§10b-e records a theory that was tested and **refuted**.
+
+**§9 / §9b are superseded by §12** — kept only for "what was ruled out".
 
 ---
 
@@ -388,12 +406,6 @@ same lamp). Findings, so nobody repeats the work:
 
 ---
 
-## NOT FIXED
-
-Note: sections #9 and #9b below are the HISTORICAL investigation trail
-of the front camera, which is now FIXED (see #12). They stay here only
-so nobody re-discovers the same dead ends.
-
 ### 14. Off-charge bootloop (MI logo repeats when charger is plugged while powered off) — FIXED (2026-09-19)
 
 - **Symptom**: power off the phone, then plug in a charger (wall or PC USB)
@@ -509,6 +521,580 @@ so nobody re-discovers the same dead ends.
   (`make SystemUI`, picks up the patched cmsdk) and flash the new
   SystemUI.apk via TWRP.
 
+### 10b. Fingerprint scanner (Goodix + Kinibi TEE) — FIXED (2026-09-14)
+
+- **Status: WORKING.** Enrollment, unlock and screen-off wake-up verified on
+  the integrated build. The full stack ships in the ROM: Kinibi TEE runtime
+  (`mcDriverDaemon` + `ld.mc`, started on `post-fs-data` before keystore),
+  MIUI `fingerprintd` (hardcodes HAL id `gf_fingerprint`),
+  `gf_fingerprint.default.so` + `goodixfingerprintd` + `libgf_*` +
+  `libgoodixfingerprintd_binder`, the 66-file MIUI mcRegistry (incl. the
+  Goodix trustlet and the AOSP gatekeeper trustlet), and the TEE gatekeeper
+  HAL (`gatekeeper.mt6797.so` = `libMcGatekeeper.so`, 64+32 — required, see
+  #10b-c). The kernel bd54 prebuilt's Goodix driver loads `gf_ta.axf` into
+  the TEE at probe.
+
+- **Sensor identity — FINAL (2026-09-14, corrected):** the device sensor is a
+  **GOODIX on SPI0** (`soc/spi@1100a000/goodix-fp@1`), NOT the FPC1145. Proof:
+  with the TEE daemon up, the kernel-driver-loaded goodix TA (`gf_ta.axf`)
+  answers `GF_CMD_INIT` with **err = 0** inside the TEE, while the FPC TA
+  returns -3/FPC_ERROR_COMM (it probes SPI1, where nothing is attached).
+  MIUI's `/system/bin/fingerprintd` hardcodes HAL id **"gf_fingerprint"**;
+  the `fingerprint.mt6797.so` FPC stack in MIUI's system.img is for another
+  device revision.
+- **Real stack (from MIUI system.img):**
+  `fingerprint.mt6797.so` (FPC TEE HAL, `fpc_tee_*`, 32+64 bit) +
+  `lib_fpc_tac_shared.so` (hardcodes `/system/app/mcRegistry/0401…0.tlbin`)
+  + trustlet `0401…0.tlbin` (the FPC TA, MCLF/Thumb, 698 KB) + SPI device
+  root `030b/030c` (Drspi, load-on-demand from the registry) +
+  `mcDriverDaemon` (t-base V006, Aug 2018 build; TEE = V009 from the `tee1`
+  partition, untouched) + MIUI `fingerprintd` (aarch64, Android 23; the
+  daemon interface is unchanged in N so LOS's framework works with it).
+- **Dead ends (proven):** the "fpsensor" HAL/TA stack (`0522…tlbin`,
+  Leadcore) belongs to another device variant — its `-12` failure was a
+  red herring. Kernel kthread `ex_open` wants trustlet `070505…` which does
+  not exist in the MIUI registry either (same single failure), and MIUI
+  mounts no `/efs` auth token (MC_AUTH_TOKEN_PATH points nowhere on MIUI
+  too) — both irrelevant. SPI1 needs no 070505 session; the TA drives SPI
+  itself via the Drspi device root.
+- **Live status before integration:** TEE runtime verified working from
+  userspace (device open, 0401 trustlet load, session, notify, TCI round
+  trip, `mcGetSessionErrorCode`=0 — the TA is alive and answering). The
+  TA's `INIT` command returns message error **-3 = FPC_ERROR_COMM** (via
+  the TAC's own error table), i.e. its in-TEE sensor SPI transfer fails;
+  root cause not visible from the normal world. `clk_enable` sysfs write
+  is real (`mt_spi_enable_clk`). All live tests ran against a
+  bind-mount-hacked system; the integrated ROM boot is the real test.
+- **Integration (this commit):**
+  `vendor/xiaomi/nikel/system/`: FPC HAL 32+64 as
+  `lib{,64}/hw/fingerprint.mt6797.so`, `lib_fpc_tac_shared.so` 32+64,
+  `bin/mcDriverDaemon`, `bin/ld.mc`, `bin/fingerprintd`,
+  `lib{,64}/libMcClient.so` + `libMcRegistry.so`, and the full 66-file
+  Kinibi registry at `app/mcRegistry/`. The obsolete fpsensor HAL and the
+  device-tree wrapper shim (`device/fingerprint/`) are removed — MIUI's
+  `fingerprint.mt6797.so` is a real `fingerprint` HAL and is found by
+  `hw_get_module` directly.
+  `init.nikel-fp.rc`: `mobicore` daemon at **class core** (MIUI-exact 7
+  drbins, user system) started on `on fs`; `fingerprintd` class
+  late_start; FPC sysfs nodes (`soc:fpc_interrupt@0/{clk_enable,hw_reset,
+  chip_id,irq,do_wakeup}`) chowned to system; `/data/fpc` + `/data/fpsensor`
+  created; `MC_AUTH_TOKEN_PATH=/data` (MIUI uses a non-existent /efs, same
+  result: daemon runs with device endorsements disabled).
+- **Next:** validate on the integrated build; if the TA still returns
+  -3, the suspects are EMI-MPU region setup inside Drspi and the TEE's
+  view of the kernel-published SPI device.
+- **Boot-loop lesson (2026-09-14, fixed):** adding `libMcClient.so` to
+  /system made MTK's `keystore.mt6797.so` (Keymaster TEE HAL) load for
+  the first time; without the mobicore daemon it retries forever, keystore
+  never registers, system_server NPE-loops on `LockdownVpnTracker`. Fix:
+  the daemon must be up before keystore (class main) — init.nikel-fp.rc is
+  installed as `system/etc/init/nikel-fp.rc` (auto-imported) and starts it
+  on `post-fs-data`. Verified live: manual daemon start → keystore wraps
+  "Keymaster TEE HAL" → boot completes. On that same boot the FPC TA's
+  INIT still returns -3/FPC_ERROR_COMM, so the sensor-SPI failure is real
+  and not an artifact of the hacked test environment.
+
+### 10b-d. Fingerprint verified end-to-end (2026-09-14)
+
+- After vendor `0e5ea60` (TEE gatekeeper HAL) and a fresh flash: PIN setup
+  works (TEE gatekeeper), enrollment completes, unlock works. The MIUI-era
+  templates that triggered the limit error earlier are no longer an issue —
+  1058 was always the gatekeeper/HMAC failure (see #10b-c), not a template
+  count problem (the real limit error is 1005).
+- Debugging aids if it regresses: `logcat | grep -aE '\[gf_'` (HAL/TA logs),
+  `logcat | grep -a 'software GateKeeper'` (must NOT appear — if it does,
+  the TEE gatekeeper HAL is missing or fails to load), `service check
+  android.hardware.fingerprint.IGoodixFingerprintDaemon`, `service check
+  android.security.keystore`, `pidof mcDriverDaemon goodixfingerprintd
+  fingerprintd`.
+
+### 23. Autofocus: the previous stage patched the wrong library (2026-10-01)
+
+§20 and §22 concluded that dead AF was "a platform limitation on this ROM".
+That conclusion was wrong, and so was every patch in §22. Two independent
+defects were sitting in plain sight.
+
+#### 23.0 `mediaserver` is 32-bit — it never loads `lib64`
+
+```
+$ adb shell 'grep libcam.hal3a /proc/$(pidof mediaserver)/maps'
+/system/lib/libcam.hal3a.v3.so
+```
+
+Both `system/lib/` and `system/lib64/` ship a `libcam.hal3a.v3.so`, and both
+export the same `MCUDrv` / `AfMgr` symbol names, so a patch aimed at the wrong
+copy is indistinguishable from a correct one until you check `/proc/*/maps`.
+§22 patched the lib64 copy in its entirety (11 gates, two libraries) and none of
+it ever executed. All of it is kept in `cam_af/` as research artifacts only;
+the lib64 prebuilt is back to stock (`md5 1e0823e3`).
+
+Correct targets for this device:
+
+| library | path | notes |
+|---|---|---|
+| HAL3A | `/system/lib/libcam.hal3a.v3.so` | 32-bit ARM/Thumb, 912 KB, delta vaddr-file = `0x8000` |
+| 3A algorithm | `/system/lib/lib3a.so` | 32-bit ARM |
+| custom | `/system/lib/libcameracustom.so` | lens + CAM_CAL tables |
+
+#### 23.1 The VCM / AF motor nodes were 0600 root:root
+
+```
+crw------- 1 root root 229, 0 /dev/MAINAF
+crw------- 1 root root 227, 0 /dev/SUBAF
+crw-rw---- 1 system camera 242, 0 /dev/camera-isp
+crw-rw---- 1 system camera 238, 0 /dev/kd_camera_flashlight
+```
+
+`mediaserver` runs as uid 1006 (`camera`). devtmpfs creates every node
+`0600 root:root`, and this ROM widens them from the `chmod`/`chown` block in
+`rootdir/init.mt6797.rc`. That block listed every camera node **except** the AF
+ones — it has `/dev/DW9714AF` (another MTK project's VCM) but not this phone's
+`/dev/MAINAF`. So `MCUDrv`'s `open()` failed, `m_fdMCU` stayed invalid, and the
+lens initialisation silently no-opped. The HAL's own error strings
+(`Err: [mcuIOC_S_SETDRVNAME] please check kernel driver`) never appeared
+because nothing got far enough to call them.
+
+**Fix:** add the six node names the HAL3A knows about to that block —
+`MAINAF`, `SUBAF`, `MAIN2AF`, `GAF001AF`, `GAF002AF`, `GAF008AF` — as
+`chmod 0660` + `chown system camera`. Verified live: `chmod 666` on the two
+nodes was enough to make the difference, and it survives as an init rule so it
+no longer depends on an `adb shell` after every reboot.
+
+#### 23.2 The real gate: the lens-table lookup never matches
+
+`AfMgr::CCTMCUNameinit(int)` (0x81cf0, 300 bytes) in the **32-bit** HAL3A:
+
+```
+0x081d30 blx NSCam::IHalSensorList::get()
+0x081d44 tbb [pc, ip]              ; sensorDev - 1 -> 4 cases
+0x081d60 blx r3                    ; vtable slot 9 (u32 mode, u32* out)
+0x081d9e blx MCUDrv::lensSearch     ; (dev, CurrSensorId)
+0x081da6 blx MCUDrv::getCurrLensID ; -> table[CurrLensIdx].LensId
+0x081daa movw r1, #0xffff
+0x081db2 subs r3, r0, r1
+0x081dba movne r3, #1              ; <-- the gate
+0x081dc0 str  r3, [r4, #0x58b8]    ; AfMgr + 0x58b8 = AF_FLAG
+```
+
+`MCUDrv::lensSearch(uint dev, uint sensorId)` (0xb949c, 796 bytes) compares
+`sensorId` against a 16-entry table that `LensCustomGetInitFunc()` fills in from
+`libcameracustom` at runtime:
+
+```
+LensMCU[LensInitTable-0][SensorId]0xffff,[LensId]0xffff
+LensMCU[LensInitTable-1][SensorId]0x0135,[LensId]0x9714
+LensMCU[LensInitTable-2][SensorId]0x3103,[LensId]0x9714
+LensMCU[LensInitTable-3][SensorId]0x0258,[LensId]0x0005
+```
+
+The sensor HAL reports `MainSensorIdx = 0x5e20`, which is in **no** entry:
+
+```
+CAM_CUS_MSDK GetCameraCalData(MainSensorIdx=5e20) Enter
+CAM_CUS_MSDK SensorId == pstSensorInitFunc[2].SensorId=5e20   <-- libcameracustom's own table matches
+CAM_CUS_MSDK SensorId != pstSensorInitFunc[1].SensorId=3103
+```
+
+So the two vendor blobs disagree: `libcameracustom` knows `0x5e20`, the
+`MCUDrv` lens table does not. With no match, `m_u4CurrLensIdx_main` keeps its
+default (the last entry whose `LensId` is `0xffff`, i.e. 0),
+`getCurrLensID()` returns `0xffff`, and `AF_FLAG` is 0 for the whole session.
+
+#### 23.3 The patch
+
+One 4-byte Thumb-2 instruction, replacing the loop that computes the *default*
+index (which on this device is already 0, so removing it is behaviour-neutral;
+`r4` is reloaded with `0xffff` immediately afterwards):
+
+| file offset | vaddr | before | after |
+|---|---|---|---|
+| `0x0b1542` | `0xb9542` | `10 2b` `f5 d1` — `cmp r3,#0x10` ; `bne 0xb9532` | `43 f2 03 15` — `movw r5, #0x3103` |
+
+`0x3103` is the S5K3L8 chip ID, so table entry 2 is the correct match for this
+phone; entries 1 and 2 share `LensId 0x9714` anyway, so the resulting AF
+behaviour is identical either way. Reverting is writing `10 2b f5 d1` back.
+
+| file | md5 | contents |
+|---|---|---|
+| `cam_af/libcam.hal3a.v3.32.stock` | `9af2c96b` | stock 32-bit HAL3A |
+| `cam_af/libcam.hal3a.v3.32.patched` | `47b9883f` | + lens-id match |
+
+The vendor preblob `vendor/xiaomi/nikel/system/lib/libcam.hal3a.v3.so` is
+patched, and `patches/camera-af/patch_lensid.py` reproduces it from stock and
+verifies it (`--check`).
+
+#### 23.4 What the patch actually bought — measured, not assumed
+
+| observation | before | after |
+|---|---|---|
+| `MCUDrv` lens lookup | `CurrLensIdx 0` | `LensMCU[idx]2 [CurrSensorId]0x3103,[CurrLensIdx]0x0002` |
+| AF commands reaching the algorithm | only `setAFMode` | `Cmd_triggerAF`, `Cmd_lockAF`, `Cmd_unlockAF`, `Cmd_cancelAF` |
+| 3A state machine | never enters AF | `aaa_state_mgr: StateCameraPreview --> StateAF` (6 transitions over 3 focus taps) |
+| photo capture | works | works (no regression) |
+
+The `StateAF` transition count is the honest headline: **0 occurrences before the
+patch, 6 after**, across otherwise identical log captures.
+
+#### 23.5 What is still broken
+
+`doAF()` still never runs, so the motor is still never commanded.
+
+```
+$ adb shell 'ls /proc/$(pidof mediaserver)/task/*/comm'   # 38 tasks
+3ATHREAD  AESenThd  F858THREAD  CamClient@Previ  ...  — no AFthread
+```
+
+`AfMgr` has `StateCAF` / `StateTAF` states and
+`ThreadRawImp::enableAFThread(AfStateMgr*)` (0x656d4, 148 bytes) exists, but
+it obtains its thread from `NS3A::IEventIrq::createInstance()` rather than
+`pthread_create`, and it never logs — so either it is not reached or it returns
+NULL. The 3A state machine reaches `StateAF` and leaves again without processing
+a single buffer. There is no camera IRQ in `/proc/interrupts` either; the HAL's
+`HwEventIrq` is built around the `AFIrq` / `HwIRQ3A` names.
+
+That is the next investigation, and unlike §22 it can be done against the
+library that actually runs.
+
+> **Superseded (2026-10-01).** `doAF()` does now run — §23.7 measured the full
+> search cycle, and §24/§25 proved the motor is opened and commanded. What is
+> still missing is **convergence**: the lens never reaches focus, because the
+> search range, step count and thresholds come from the IMX258-sourced tuning
+> profile (§26.3, §27.8). The blocker therefore moved from "the algorithm is
+> never invoked" to "the algorithm is invoked with parameters that do not
+> describe this lens".
+
+#### 23.6 Corrections to earlier sections
+
+* §20's "AF is a platform limitation on this ROM" — **retracted.** At least two
+  concrete bugs were involved (node permissions, lens-table mismatch), and both
+  are fixed. The no-AF-OTP / empty-NVRAM findings from §20 still stand, but as
+  a statement about calibration quality, not about AF being unable to run.
+* §22's eleven gates and their addresses are lib64 addresses. They describe a
+  binary that is never loaded. The 32-bit equivalents are different code.
+* §22's "there are no direct `bl` call sites, a vtable-slot walk is required" is
+  true but was used to justify stopping; with the 32-bit library the same scan
+  does resolve `MCUDrv::lensSearch` -> `AfMgr::CCTMCUNameinit` via the ARM PLT.
+
+#### 23.7 Follow-up: AF now runs a full search cycle and times out
+
+After the §23.3 patch and the §23.1 node permissions, the AF chain engages
+completely. `MtkCam/StreamingProcessor` reports a full state machine cycle per
+focus tap (three taps, one log):
+
+```
+[0:isAfCallback] AFstate(1 -> 3), msg(0), msgExt(0), AfCb(0)
+[0:isAfCallback] AFstate(3 -> 5), msg(4), msgExt(0), AfCb(1)      <- searching
+[0:isAfCallback] AFstate(5 -> 3), msg(0), msgExt(0), AfCb(0)      <- ~3.1 s later
+[0:isAfCallback] AFstate(3 -> 6), msg(2048), msgExt(0), AfCb(1)
+[0:isAfCallback] AFstate(6 -> 3), msg(0), msgExt(0), AfCb(0)      <- ~4.6 s later
+```
+
+So AF is no longer dead: it triggers, searches for about three seconds, and
+gives up. That is the signature of an AF that runs but cannot converge, not one
+that never starts — a completely different failure from §20/§22.
+
+Also confirmed present and healthy at the framework level:
+
+```
+afeng-max-focus-step: 1023        <- the AF engine knows the motor step range
+focus-mode: auto
+focus-distances: 0.95,1.9,Infinity
+```
+
+#### 23.8 What the remaining blocker is, precisely
+
+Three independent checks all say the VCM motor is never commanded:
+
+| check | result |
+|---|---|
+| `dmesg \| grep -iE 'mainaf\|vcm\|lens\|motor\|gaf'` | empty — the VCM driver never logs anything |
+| HAL error strings (`invalid m_fdMCU`, `mcuIOC_*`, `please check kernel driver`) | never printed, so the ioctl path is not reached at all |
+| `debug.af_motor.position=1` (read by `lib3a.so`, `AfAlgo::isAFMotorStop`) | no motor-position log ever appears |
+
+The reason it is hard to see from the code is that every entry point into the
+lens driver is a virtual call through a vtable that is zero-filled in the file
+and only populated by the loader:
+
+* `MCUDrv::lensSearch` / `getCurrLensID` are reachable only because
+  `AfMgr::CCTMCUNameinit` calls them through the ARM PLT (§23.2).
+* `GAFLensDrv::init`, `LensDrv::init`, `LensSensorDrv::init`,
+  `GAFLensDrv::moveMCU`, `GAFLensDrv::setMCUInfPos` and `LensCustomInit` have
+  **zero** direct `bl` call sites in `.text` — all eight PLT stubs exist and all
+  eight are called virtually.
+* `_ZTVN6NS3Av35AfMgrE` and `_ZTV8AfMgrDev<...>` are zero in the file, and this
+  build's `.rel.dyn` (`ANDROID_REL`, 0x3b98 bytes at file 0x43ac4) does not
+  contain usable addends for that range, so the slot order cannot be recovered
+  statically. It *can* be read from the running process
+  (`/proc/$(pidof mediaserver)/mem` at `load_bias + 0xde890`,
+  `load_bias = 0xec918000` on this boot) — that is the next concrete step.
+
+#### 23.9 Diagnostic worth keeping
+
+Patching the `cbz` at `0x65724` (`ThreadRawImp::enableAFThread`, guard before the
+failure log) to a `nop` makes the log unconditional and is a one-instruction way
+to tell "not called" from "called and failed":
+
+```
+E Hal3ARawImp/thread: [enableAFThread()] Err: 591:, [enableAFThread] result(0)
+```
+
+With the lens-id patch alone the AF thread **is** created (`AFthread`,
+`AFOBufThread_1`, `AAOBufThread_1` all appear in `/proc/$(pidof mediaserver)/task`),
+so the nop is diagnostic only and is *not* part of the shipped patch. An earlier
+sampling that showed no `AFthread` was a timing artifact — the thread is created
+lazily when AF is engaged and torn down when it is not.
+
+#### 23.10 State of the working tree
+
+* `init.mt6797.rc` and the vendor preblob both carry the fixes, but the device is
+  still running the *old* `system.img`, so the node permissions on the phone
+  right now come from a manual `chmod 666 /dev/MAINAF /dev/SUBAF`. After a reboot
+  without a rebuild the AF chain will be back to "starts, finds no lens, AF off".
+* Correct order for verifying on hardware: build and flash, then check
+  `ls -la /dev/MAINAF` shows `crw-rw---- system camera` before blaming anything
+  else.
+
+### 28. IR remote: the HAL was already written, never enabled (2026-10-01)
+
+#### 28.1 Symptom
+
+An installed IR remote app (`com.duokan.phone.remotecontroller`) opens fine but has
+no "add remote" button, where the same app on other phones shows one.
+
+#### 28.2 The hardware and driver are all present
+
+```
+/dev/irtx                crw-rw---- system system 245,0
+kernel symbols           irtx_probe, irtx_isr, switch_irtx_gpio, compare_irtx_code
+driver source            drivers/misc/mediatek/irtx/mt6797/mt_irtx.c
+DT (SoC, mt6797.dtsi)    irtx@1101d000, compatible = "mediatek,irtx",
+                         pwm_ch = <3>, clock-frequency = <26000000>
+kernel config            CONFIG_MTK_IRTX_PWM_SUPPORT=y
+ueventd.mt6797.rc:80     /dev/irtx  0660  system  system
+```
+
+`/dev/irtx` is owned by `system`, which is exactly what `system_server` runs as,
+so permissions are already correct.
+
+#### 28.3 The stack is JNI-era, not HIDL
+
+`frameworks/base/services/core/java/com/android/server/ConsumerIrService.java`
+declares `native long halOpen()`, `native int halTransmit(long, int, int[])` and
+`native int[] halGetCarrierFrequencies(long)`. The JNI shim
+`frameworks/base/services/core/jni/com_android_server_ConsumerIrService.cpp` calls
+`hw_get_module(CONSUMERIR_HARDWARE_MODULE_ID, …)`. So no `hardware/interfaces/ir`
+is needed — which is fortunate, because that directory does not exist in this
+tree at all.
+
+`hasIrEmitter()` returns `mNativeHal != 0`, so with the module missing every app
+hides its IR UI. That is the actual reason the button is absent — nothing is
+wrong with the app.
+
+#### 28.4 The MTK HAL already existed, in the device tree
+
+`device/xiaomi/nikel/consumerir/consumerir.c` (12 210 bytes, committed as
+`1e29b00`) is a complete implementation. Its waveform conversion, which had to be
+recovered from the driver, is:
+
+```c
+buffer_len = ceil(total_time / (float)32);      /* one bit per microsecond */
+for (i = 0; i < pattern_len; i++)
+    for (j = 0; j < pattern[i]; j++) {         /* pattern[] arrives in uS */
+        if (current_level) *(wave_buffer + int_ptr) |=  (1 << bit_ptr);
+        else               *(wave_buffer + int_ptr) &= ~(1 << bit_ptr);
+        bit_ptr++; if (bit_ptr == 32) { bit_ptr = 0; int_ptr++; }
+    }
+current_level = !current_level;
+ioctl(fd, IRTX_IOC_SET_CARRIER_FREQ, &carrier_freq);
+write(fd, (char *)wave_buffer, buffer_len * 4);
+```
+
+This matches the driver exactly and explains its otherwise odd constant:
+`PWM_MODE_MEMORY_REGS.HDURATION = 25` at a 26 MHz clock is 0.96 µs, i.e. one
+microsecond per bit. Its `IRTX_IOC_SET_CARRIER_FREQ` is `_IOW('R', 0, unsigned
+int)` = `0x40045200`, byte-identical to `IRTX_IOC_SET_CARRIER_FREQ` in the
+kernel's `mt_irtx.h`.
+
+#### 28.5 Three gates were shut
+
+```
+device/xiaomi/nikel/board.mk:29            MTK_IRTX_SUPPORT := true
+device/xiaomi/nikel/consumerir/Android.mk  ifeq ($(strip $(MTK_IRTX_SUPPORT)),yes)
+```
+
+`true` is not `yes`, so the entire module definition was skipped. Then:
+
+* `device/xiaomi/nikel/consumerir/Android.mk` marks the module
+  `LOCAL_MODULE_TAGS := optional`, so even when defined it is installed only if
+  named in `PRODUCT_PACKAGES`. Nothing did.
+* `android.hardware.consumerir` was never installed; the AOSP file already exists
+  at `frameworks/native/data/etc/android.hardware.consumerir.xml` and was simply
+  not listed.
+
+Result: `/system/lib/hw/` had no `consumerir.*.so` at all.
+
+#### 28.6 Fix — three lines, all three must land together
+
+| file | change |
+|---|---|
+| `board.mk` | `MTK_IRTX_SUPPORT := true` → `yes` |
+| `common.mk` | `PRODUCT_PACKAGES += consumerir.$(TARGET_BOARD_PLATFORM)` |
+| `permissions.mk` | install `android.hardware.consumerir.xml` into `system/etc/permissions` |
+
+They are not independent. `ConsumerIrService`'s constructor throws if the feature
+is declared but `halOpen()` returns 0, **and** if `halOpen()` returns non-zero
+while the feature is absent — either way `system_server` fails to boot:
+
+```java
+mNativeHal = halOpen();
+if (hasSystemFeature(FEATURE_CONSUMER_IR)) {
+    if (mNativeHal == 0) throw new RuntimeException("FEATURE_CONSUMER_IR present, but no IR HAL loaded!");
+} else if (mNativeHal != 0) {
+    throw new RuntimeException("IR HAL present, but FEATURE_CONSUMER_IR is not set!");
+}
+```
+
+#### 28.7 Known, deliberate: SELinux
+
+`/dev/irtx` is labelled `device:s0` and this tree has no rule granting the
+`system` domain `device:chr_file`. Every transmit will therefore log
+
+```
+avc: denied { open } for … path="/dev/irtx" … permissive=1
+```
+
+which is allowed, because this ROM runs SELinux permissive — consistently with
+`ioctl_defines` and `ioctl_macros` being deleted from `system/sepolicy`
+(-2802 lines, see the tree-wide diff). Not worth an sepolicy edit right before a
+build for a denial that changes nothing.
+
+#### 28.8 Not verified on hardware
+
+The device-side check could not run: `/dev/irtx` is `0660 system:system`, the adb
+shell is `uid=2000(shell)`, there is no `su`, and `adb root` is refused. Running
+MIUI's own `/bin/consumerird` from adb therefore failed at `open()` and produced
+no driver log — a misleading result, since the real HAL runs as `system`. The
+protocol itself is confirmed from source on both sides; what still needs hardware
+is whether a transmitter LED is physically present.
+
+### 29. ADB ran as root, which silently killed scrcpy's clipboard (2026-10-01)
+
+#### 29.1 Symptom
+
+scrcpy 3.3.4 mirrors fine, keyboard and mouse work, but `Ctrl+V` does nothing
+and the device→PC clipboard sync never fires. Everything else about scrcpy is
+fine, so it reads as a scrcpy bug. It is not.
+
+#### 29.2 The actual failure
+
+Running `scrcpy --verbosity=debug` against the device produced, on the
+server's control thread:
+
+```
+[server] ERROR: Exception on thread Thread[control-recv,5,main]
+java.lang.SecurityException: Calling uid 0 does not own package com.android.shell
+	at android.os.Parcel.readException(Parcel.java:1692)
+	at android.content.IClipboard$Stub$Proxy.getPrimaryClip(IClipboard.java:187)
+	at android.content.ClipboardManager.getPrimaryClip(ClipboardManager.java:134)
+	at com.genymobile.scrcpy.wrappers.ClipboardManager.getText(ClipboardManager.java:27)
+	at com.genymobile.scrcpy.device.Device.getClipboardText(Device.java:106)
+	at com.genymobile.scrcpy.device.Device.setClipboardText(Device.java:119)
+```
+
+`ClipboardService` only answers a caller that owns `com.android.shell` (uid
+2000). On this device adbd was uid 0:
+
+```
+$ adb shell id
+uid=0(root) gid=0(root) groups=(...,1011(adb),...) context=u:r:su:s0
+$ adb shell getprop ro.debuggable
+1
+```
+
+Two consequences, and the second is the worse one:
+
+1. `Ctrl+V` cannot work — it has to write the device clipboard first.
+2. The exception kills the **control-recv thread**, so *every* scrcpy shortcut
+   dies, not just the clipboard ones. And because clipboard autosync runs at
+   startup, it crashed without the user touching copy/paste at all.
+
+`--no-clipboard-autosync` avoids the startup probe and the exception
+disappears entirely — verified. `MOD+Shift+V` ("inject computer clipboard text
+as a sequence of key events") still works under it, because that path never
+touches the clipboard. `MOD+C` / `MOD+X` also work: they inject the Android
+COPY/CUT keycodes and never call the clipboard service.
+
+#### 29.3 Root cause: two build-time overrides, from two commits
+
+```makefile
+# device/xiaomi/nikel/system.prop:73-76   — commit 1597ece, "enable ADB by default"
+ro.debuggable=1
+ro.adb.secure=0
+persist.sys.usb.config=adb
+
+# device/xiaomi/nikel/device.mk:80-82     — commit 1e29b00 (initial import), "# Debug"
+ADDITIONAL_DEFAULT_PROPERTIES += ro.adb.secure=0
+ADDITIONAL_DEFAULT_PROPERTIES += ro.secure=0
+ADDITIONAL_DEFAULT_PROPERTIES += ro.debuggable=1
+```
+
+`persist.sys.usb.config=adb` is what made ADB come up on every boot;
+`init.usb.rc:38` turns it into `start adbd`:
+
+```
+on property:sys.usb.config=adb && property:sys.usb.configfs=0
+    write /sys/class/android_usb/android0/functions ${sys.usb.config}
+    start adbd
+```
+
+The `ro.debuggable=1` is what made that adbd run as **root**, which is what
+broke the clipboard.
+
+#### 29.4 Why deleting those lines is not enough
+
+`breakfast nikel` with no second argument defaults to **userdebug**:
+
+```sh
+# vendor/cm/build/envsetup.sh — sourced from build/envsetup.sh:1723
+if [ -z "$variant" ]; then
+    variant="userdebug"
+fi
+lunch lineage_$target-$variant
+```
+
+and a userdebug build injects `ro.debuggable=1` from the build system itself.
+So the tree-side removal only takes effect on a **user** build. `brunch nikel`
+is exactly `breakfast nikel` + `mka bacon`, so the convenient command is also
+the one that silently produces a root-adb ROM.
+
+#### 29.5 Fix
+
+| file | change |
+| :--- | :--- |
+| `system.prop` | `persist.sys.usb.config=adb` → `mtp`; `ro.debuggable` / `ro.adb.secure` overrides removed |
+| `device.mk` | the three `ADDITIONAL_DEFAULT_PROPERTIES` debug overrides removed; only `ro.adb.secure=1` kept |
+| build | `breakfast nikel user` — **not** `breakfast nikel` / `brunch nikel` |
+
+ADB then no longer starts on its own, USB enumerates as MTP, and ADB can still
+be enabled by hand from Developer options with an RSA fingerprint. A `user`
+build also means `ro.debuggable=0`, so adbd is not root and the clipboard works.
+
+Deliberately kept: ADB reachable on demand. It is still the only practical way
+to recover this device — see §23.10, `/dev/MAINAF` reverts to `crw-------` on
+every boot until the `init.mt6797.rc` fix (§23.1) is actually in the flashed
+`system.img`, and that needs `adb shell chmod`.
+
+#### 29.6 If a root shell is wanted on purpose
+
+`adb root` is refused on a user build, and there is no `su` in this ROM
+(`/system/xbin/su` and `/system/bin/su` both absent). Building `userdebug`
+brings the root shell back — and the clipboard exception with it. The two are
+not separable: root adbd *is* the thing ClipboardService rejects.
+
+---
+
+## NOT FIXED
+
 ### 8. Voice calls crash the C2K modem (MD3) — known, community-wide
 
 - **Symptom**: MO call: `ATD` accepted (OK) then `+ECPI 130` release ~1.4 s
@@ -566,50 +1152,323 @@ so nobody re-discovers the same dead ends.
     (`libc2kril.so` 94684, `libc2kutils.so` 26356,
     `libviatelecom-withuim-ril.so` 269228) — only the generic, version-locked
     Android stack differs.
-- **2026-09-15 malam — BREAKTHROUGH: EX record MD3 ter-decode penuh** (artefak: `ccci_dump3.txt`, `dmesg_call_full3.txt`, `md3_exrec.bin` di `nikelbuild/`; `md3_exrec.bin` = parse blok "Dump MD EX log" `Base: ffffffc0b8299beb`):
-  - Data diambil dari `/proc/ccci_dump` (buffer CCCI NORMAL yang tidak tercetak console karena `ccci_debug_enable` default 4; set `echo 6 > /sys/kernel/ccci/debug` untuk semua print / 5 untuk detail-EE saja tanpa noise).
+- **2026-09-15 late night — BREAKTHROUGH: MD3 EX record fully decoded** (artifacts: `ccci_dump3.txt`, `dmesg_call_full3.txt`, `md3_exrec.bin` in `nikelbuild/`; `md3_exrec.bin` = parsed out of the "Dump MD EX log" block, `Base: ffffffc0b8299beb`):
+  - Data read from `/proc/ccci_dump` (the CCCI NORMAL buffer is not printed to the console because `ccci_debug_enable` defaults to 4; set `echo 6 > /sys/kernel/ccci/debug` for all prints, or 5 for EE details only, without the noise).
   - Record: `ex_type=15 LTE_EXP`, **file = `mon/monfatalerror.c`**, **ExStr = `Ex Enter` + `Exception Nested Happened! \r\n`**, `Hisr65`, PC/LR MD3 = `0x00106A85`/`0x00106A84`, param `Ex D 0x204 / 0xD1`.
-  - String `mon/monfatalerror.c` + `Exception Nested Happened!` hanya ada di **MD3 firmware `modem_3_3g_n.img` @file 0x3119e0** (bukan MD1) → EE ini milik monitor MD3 sendiri.
-  - **Nested** = EE MD3 masuk untuk ke-2x; record pertama (penyebab asli speech) tertimpa. PC/LR 0x106A84 = loop mailbox-read monitor MD3 (`bl 0x1063ac` read 12-byte, msg `[0]='Y' [9]=8 [4]=1`).
-  - **Mapping MD3: runtime addr = file offset − 0x200** (dibuktikan dump `Base: ffffff80045fc000` isi "MMM\0..." = file 0x200). Semua disasm di atas runtime; literal pools: `monfatalerror` ref @runtime 0x1066be/0x106cae (pool 0x1066d4/0x106cc0), `Ex Enter` @0x1066ea (pool 0x106a1c), `Nested` @0x106726 (pool 0x106a30).
-  - Fungsi teridentifikasi (runtime): mailbox read = `0x1063ac` (inner `0x989f4`), monitor main loop = `0x106870`–`0x10699a` (msg `[0]='Y'`, len filter `[9]`∈{8,11}, `[4]`/`[8]`==1), EX record builder = `0x1067c0`–`0x106810` (`strb type 5/15` ke `[r4+0x10]`, copy ke `[r4+0xfc..0x138]`), log helper = `0x106248` (args r0=level, r2=str, r3=len).
-  - **Kesimpulan baru**: bukan MD1 broadcast type-19 yang langsung mematikan — MD3 monitor sendiri masuk EE **nested** saat speech path on; exception ASLI (instance pertama) tidak ter-record. Lapisan speech handler MD3 masih harus dipetakan.
-- **2026-09-15 lanjut — tooling + patch diagnostik MD3** (backup firmware: `/tmp/md3off/modem_3_3g_n.img.orig` md5 `bfe0d82a183724a1387cec901e7aecc8`):
-  - Disassembler pool-aware dibuat (`/tmp/md3off/md3dis.py`): thumb16 `ldr rX,[pc,#imm]` literal scan + anotasi string rodata. EE entry MD3 = runtime `0x1066e8` (file `0x1068e8`): print `Ex Enter` → cek EE counter `[0x69dffc]` (`0xff`=fresh, `+1==1`=fresh, lain=nested → print `Exception Nested Happened!`, copy task context `[0x5903c0]` ke record, **`b self` hang**).
-  - `ee=a3f` vs `a3d`: bit1 `MD_EE_DUMP_ON_GOING` — lama hang (dump on-going), baru setelah patch tidak hang.
-  - **Patch diagnostik `nested2fresh`**: file `0x106924` `1ad0`→`1ae0` (`beq fresh`→`b fresh`, nested path selalu jalan fresh, tidak hang). md5 `49c57753808dfeb7edb48a0e44658832`. Flash via TWRP (`/system/etc/firmware/modem_3_3g_n.img`).
-  - **Hasil tes MO**: `ee=a3d` (tidak hang), tapi record TETAP `LTE_EXP` + file `mon/monfatalerror.c` + code1/2 `"mon/monf"` → file/code ini **hardcoded identitas handler EE MD3**, BUKAN info fault asli. Instance SWINT pertama tidak pernah membawa file/line ke AP; context fault asli hanya ada di EE dump internal MD3 (butuh mdlogger/DHL yang tidak ada di LOS).
-  - Paket CCIF pertama sebelum EE: `Q0 Rx msg 0 24 80000006 0` (36 byte, MD3→AP "Ex Enter") 110 ms setelah speech alloc; `Q0 Rx 80000006` dari MD1 kemungkinan pesan speech type-19 pemicu.
-  - **2026-09-15 malam 2 — reverse lanjutan MD3 speech path** (checkpoint, belum ketemu handler tepat):
-    - `Q0 Rx 80000006` = paket CCIF MD3→AP berisi notif EE ("Ex Enter", 36 byte) — EFEK crash, bukan pemicu. Pesan speech MD1→MD3 via SMEM `0x8e200000` antar-modem, tak terlihat di AP.
-    - Konstanta `0x80000006` literal MD3 @file `0x2391ad/0x309a21` (bukan pool code).
-    - Peta speech MD3: task `SpeechReadMsg`/`SpeechWriteMsg`, queue `S2_SPEECH`, `SPC2K_UL_GetSpeechFrame`, `SvcSendSpeechConnMsg`, `mdSpeechLoopBackModeMsgProc`; module `mdipc/` (cc_irq_msg_v2/v2, cc_sys_comm_v2, cc_irq_spinlock) + `hwd/hwd_speech/` (hwdsph/hwdvm/hwdaudioservice). Code mdipc runtime ~`0x100200`–`0x101000` (init `0x100448`: alloc 4 group `bl 0xff198`, `bl 0x1008bc/0x100f74/0x1013b4`, register msg `0x10deb8`).
-    - Tooling: `/tmp/md3off/md3dis.py` (pool-aware thumb16 disasm + string anotasi; thumb32 `ldr.w` scanner kosong — pool MD3 dicampur data, butuh Ghidra/IDA untuk lanjut).
-    - Faktor mempermudah patch: MD3 C2K nikel = data-only (speech GSM selalu MD1) → NO-OP handler speech MD3 praktis aman, tapi fungsi handler belum teridentifikasi.
-  - **2026-09-16 — patch `eeoff` (MD3 EE entry → `bx lr`)**: runtime `0x1066e8` (file `0x1068e8`) `b5f0...`→`4770 bf00`, md5 `9207f7cc9124fae10f4985a40ef51f8c`. **GAGAL**: MD3 masih kirim EX (`ee=a3d` @158s, voice_trigger→110ms) — paket EX dikirim state machine CCIF MD3 **sebelum** call EE entry (EE entry hanya build record). Salinan kedua pool `0x106cc0` = fungsi log biasa, bukan EE entry. Firmware **revert** ke original. Dengan begitu semua patch AP-side & MD3-side berbasis paket/EE gagal; tersisa: patch MD1 speech broadcast type-19 (reverse modem_1_ulwctg_n.img 15.8 MB) atau kernel reset-policy — keduanya besar.
-  - **Firmware di-revert** ke original `bfe0d82a...` (baseline bersih). `nested2fresh` tidak diadopsi.
-  - **2026-09-17 — tes MOLY Vernee W1539 (madOS Apollo Lite) di MD1 nikel — GAGAL + NVRAM kena**:
-    - MD firmware modem nikel sebenarnya di **partisi**: `md1img`=`mmcblk0p12` (24MB, W1603.P90), `md1dsp`=p13 (4MB), `md1arm7`=p14, `md3img`=p15 (5MB) — `/system/etc/firmware/*` hanya fallback (patch firmware via /system kemarin TIDAK pernah berdampak; perubahan ee a3f→a3d = timing race, bukan efek patch).
-    - Backup partisi sebelum tes: `/sdcard/md1img_backup.img` (24MB, md5 `bfd11123`), `/sdcard/md1dsp_backup.img` (4MB, `69acba4b`); NVRAM backup `/sdcard/nvram_md_backup.tgz` (93KB).
-    - Flash Vernee `modem_1` W1539.V27 (madOS zip, 15.3MB) + `dsp_1` ke partisi → boot loop (`md1 bootup/reset_start`, `NOT_READY`), MOLY Vernee inkompatibel nikel (X20 vs X20M calib/config).
-    - Restore p12+p13 dari backup → partisi asli kembali (`bfd11123`/`69acba4b`), md1/md3 ready.
-    - **SISA DAMPAK**: NVRAM `/data/nvram/md/NVRAM` tersentuh firmware Vernee (`SWCHANGE` di-update Vernee, `NVD_DATA` timestamps 2026-09-14/16). `SWCHANGE*` dihapus; `NVD_DATA` di-wipe biar regenerate → SIM flapping `READY↔NOT_READY` + `wait to reset` loop di kedua SIM, kambuh-kambuhan. Belum pulih 100% — perlu cold power off (baterai dicabut 10s) + tunggu NVRAM regenerate. Tidak boleh flash firmware modem asing lagi; MD3 partisi p15 saat ini = copy `md3rom.img.orig` (`bfe0d82a`) yang dulu normal (sinyal OK, call tetap crash).
-  - **2026-09-17 malam — PULIH TOTAL via fastboot stock MIUI V10.2.1.0** (`/run/media/corex/System/ROM-nikel/nikel_global_images_V10.2.1.0.MBFMIXM_20190123.0000.00_6.0_global/images/`):
-    - Penyebab flapping terverifikasi: partisi `md3img` (p15) berisi copy `/system` (beda versi, head `b4 45 3e 00` size `0x3e45b4` vs file `0x3e1a04`) + NVRAM sisa Vernee → MD1 hang (`AT+CGREG?` no response), WDT reset loop (`wait to reset`).
-    - Fix: **fastboot flash modem partisi langsung** — `fastboot flash md1img images/md1rom.img && fastboot flash md1dsp images/md1dsp.img && fastboot flash md1arm7 images/md1arm7.img && fastboot flash md3img images/md3rom.img` (stock `flash_all.sh` MIUI memang flash modem via fastboot — tidak perlu SP Flash Tool/scatter untuk partisi modem). Bootloader unlocked → OKAY semua.
-    - Stock `md3rom.img` head `b4 45 3e 00` = **identik header partisi asli** (md5 `cadc0922`, size `0x3e5610`) — sumber md3rom asli ketemu di MIUI fastboot ROM.
-    - **Hasil: sinyal pulih penuh** (`READY,READY`, md1+md3 ready, TELKOMSEL+3, baseband W1603.P90) — TANPA format NVRAM, IMEI utuh, file `NVD_IMEI/MP0B_001` tidak tersentuh.
-    - Pelajaran: recovery zip MIUI ≠ full stock; yang memperbaiki modem = **fastboot ROM** (berisi `md1rom/md1dsp/md1arm7/md3rom/preloader` + scatter). NVRAM campur firmware asing pulih dengan re-flash modem stock tanpa wipe.
-- **Jalur fix yang terbuka (belum dikerjakan)**: patch firmware MD3 `modem_3_3g_n.img` (file di `/system/etc/firmware`, flashable via TWRP):
-  1. Reverse handler pesan speech MD3 (penerima SMEM MD1↔MD3 type-19 / pesan mailbox `[9]=8/[9]=11`) → NO-OP atau swallow.
-  2. Atau patch nested-EE guard supaya instance pertama tidak tertimpa (dapat file/line assert asli).
-  - Tooling berikutnya: disassembler pool-aware per fungsi (entrypoints 0x1063ac/0x106248/0x1067c0), scan `ldr rX,[pc,#imm]` literal 16-bit (script sudah jadi, hasil 4 ref di atas).
+  - The strings `mon/monfatalerror.c` and `Exception Nested Happened!` exist only in the **MD3 firmware `modem_3_3g_n.img` @file 0x3119e0** (not in MD1) → this EE belongs to MD3's own monitor.
+  - **Nested** = the MD3 EE has now been entered for the 2nd time; the first record (the real speech cause) was overwritten. PC/LR 0x106A84 = MD3's mailbox-read monitor loop (`bl 0x1063ac` reads 12 bytes, msg `[0]='Y' [9]=8 [4]=1`).
+  - **MD3 mapping: runtime addr = file offset − 0x200** (proved by the dump `Base: ffffff80045fc000` whose content "MMM\0..." sits at file 0x200). Everything below is disassembled at runtime addresses; literal pools: `monfatalerror` ref @runtime 0x1066be/0x106cae (pool 0x1066d4/0x106cc0), `Ex Enter` @0x1066ea (pool 0x106a1c), `Nested` @0x106726 (pool 0x106a30).
+  - Identified functions (runtime): mailbox read = `0x1063ac` (inner `0x989f4`), monitor main loop = `0x106870`–`0x10699a` (msg `[0]='Y'`, length filter `[9]`∈{8,11}, `[4]`/`[8]`==1), EX record builder = `0x1067c0`–`0x106810` (`strb type 5/15` into `[r4+0x10]`, copy to `[r4+0xfc..0x138]`), log helper = `0x106248` (args r0=level, r2=str, r3=len).
+  - **New conclusion**: the MD1 broadcast type-19 is not what kills the AP directly — MD3's own monitor enters an EE **nested** when the speech path is on; the ORIGINAL exception (the first instance) is never recorded. MD3's speech handler layer still has to be mapped.
+- **2026-09-15, continued — MD3 tooling + diagnostic patch** (firmware backup: `/tmp/md3off/modem_3_3g_n.img.orig` md5 `bfe0d82a183724a1387cec901e7aecc8`):
+  - Wrote a pool-aware disassembler (`/tmp/md3off/md3dis.py`): thumb16 `ldr rX,[pc,#imm]` literal scan + rodata string annotation. MD3 EE entry = runtime `0x1066e8` (file `0x1068e8`): print `Ex Enter` → check the EE counter `[0x69dffc]` (`0xff`=fresh, `+1==1`=fresh, anything else=nested → print `Exception Nested Happened!`, copy the task context `[0x5903c0]` into the record, then `b self` and hang).
+  - `ee=a3f` vs `a3d`: bit1 = `MD_EE_DUMP_ON_GOING` — it used to hang (dump on-going) and only stopped hanging after the patch.
+  - **Diagnostic patch `nested2fresh`**: file `0x106924` `1ad0`→`1ae0` (`beq fresh`→`b fresh`, so the nested path always takes the fresh branch and does not hang). md5 `49c57753808dfeb7edb48a0e44658832`. Flash via TWRP (`/system/etc/firmware/modem_3_3g_n.img`).
+  - **MO test result**: `ee=a3d` (no hang), but the record STILL reads `LTE_EXP` + file `mon/monfatalerror.c` + code1/2 `"mon/monf"` → that file/code is the **hardcoded identity of MD3's EE handler**, NOT the real fault information. The first SWINT instance never carries file/line to the AP; the true fault context lives only in MD3's internal EE dump (needs mdlogger/DHL, which LOS does not have).
+  - First CCIF packet before the EE: `Q0 Rx msg 0 24 80000006 0` (36 bytes, MD3→AP "Ex Enter") 110 ms after speech alloc; `Q0 Rx 80000006` from MD1 is most likely the triggering speech type-19 message.
+  - **2026-09-15, second night — continued reverse of the MD3 speech path** (checkpoint; the exact handler still not found):
+    - `Q0 Rx 80000006` = a CCIF packet MD3→AP carrying the EE notification ("Ex Enter", 36 bytes) — an EFFECT of the crash, not the trigger. The speech message MD1→MD3 travels over SMEM `0x8e200000` between modems and is invisible on the AP.
+    - The `0x80000006` constant is an MD3 literal @file `0x2391ad`/`0x309a21` (not pool code).
+    - MD3 speech map: tasks `SpeechReadMsg`/`SpeechWriteMsg`, queue `S2_SPEECH`, `SPC2K_UL_GetSpeechFrame`, `SvcSendSpeechConnMsg`, `mdSpeechLoopBackModeMsgProc`; modules `mdipc/` (cc_irq_msg_v2/v2, cc_sys_comm_v2, cc_irq_spinlock) + `hwd/hwd_speech/` (hwdsph/hwdvm/hwdaudioservice). mdipc code at runtime ~`0x100200`–`0x101000` (init `0x100448`: allocate 4 groups via `bl 0xff198`, `bl 0x1008bc/0x100f74/0x1013b4`, register msg `0x10deb8`).
+    - Tooling: `/tmp/md3off/md3dis.py` (pool-aware thumb16 disasm + string annotation; the thumb32 `ldr.w` scanner returns nothing — MD3's pools are interleaved with data, so Ghidra/IDA is needed to go further).
+    - Factor that makes patching easier: nikel's MD3 C2K is data-only (GSM speech always goes through MD1) → a NO-OP MD3 speech handler is practically safe, but the handler function has not been identified.
+  - **2026-09-16 — patch `eeoff` (MD3 EE entry → `bx lr`)**: runtime `0x1066e8` (file `0x1068e8`) `b5f0...`→`4770 bf00`, md5 `9207f7cc9124fae10f4985a40ef51f8c`. **FAILED**: MD3 still sends the EX (`ee=a3d` @158 s, voice_trigger→110 ms) — the EX packet is emitted by MD3's CCIF state machine **before** the EE entry call (the EE entry only builds the record). The second copy of pool `0x106cc0` is an ordinary logging function, not the EE entry. Firmware **reverted** to the original. This kills every AP-side and MD3-side patch based on the packet/EE; what is left: patch the MD1 speech broadcast type-19 (reverse `modem_1_ulwctg_n.img`, 15.8 MB) or change the kernel reset policy — both are large.
+  - **Firmware reverted** to the original `bfe0d82a...` (clean baseline). `nested2fresh` was not adopted.
+  - **2026-09-17 — test Vernee MOLY W1539 (madOS Apollo Lite) on nikel's MD1 — FAILED + NVRAM hit**:
+    - nikel's modem firmware actually lives in the **partitions**: `md1img`=`mmcblk0p12` (24 MB, W1603.P90), `md1dsp`=p13 (4 MB), `md1arm7`=p14, `md3img`=p15 (5 MB) — `/system/etc/firmware/*` is only a fallback (patching the firmware through /system had NO effect; the `ee a3f`→`a3d` change was a timing race, not an effect of the patch).
+    - Partition backups before the test: `/sdcard/md1img_backup.img` (24 MB, md5 `bfd11123`), `/sdcard/md1dsp_backup.img` (4 MB, `69acba4b`); NVRAM backup `/sdcard/nvram_md_backup.tgz` (93 KB).
+    - Flashed Vernee `modem_1` W1539.V27 (madOS zip, 15.3 MB) + `dsp_1` into the partitions → boot loop (`md1 bootup/reset_start`, `NOT_READY`); Vernee MOLY is incompatible with nikel (X20 vs X20M calibration/config).
+    - Restored p12+p13 from the backups → the original partitions came back (`bfd11123`/`69acba4b`), md1/md3 ready.
+    - **REMAINING DAMAGE**: the Vernee firmware touched `/data/nvram/md/NVRAM` (`SWCHANGE` updated to Vernee, `NVD_DATA` timestamps 2026-09-14/16). `SWCHANGE*` was deleted and `NVD_DATA` wiped so it would regenerate → both SIMs flapped `READY`↔`NOT_READY` with a `wait to reset` loop, intermittently. Not 100% recovered — it needed a cold power-off (battery out for 10 s) plus time for the NVRAM to regenerate. No foreign modem firmware may be flashed again; partition p15 currently holds a copy of `md3rom.img.orig` (`bfe0d82a`) that used to be normal (signal OK, calls still crash).
+  - **2026-09-17, night — FULL RECOVERY via stock MIUI V10.2.1.0 fastboot** (`/run/media/corex/System/ROM-nikel/nikel_global_images_V10.2.1.0.MBFMIXM_20190123.0000.00_6.0_global/images/`):
+    - Flapping cause verified: partition `md3img` (p15) held a copy of `/system` (a different version, head `b4 45 3e 00`, size `0x3e45b4` vs the file's `0x3e1a04`) plus Vernee's leftover NVRAM → MD1 hung (`AT+CGREG?` no response) with a WDT reset loop (`wait to reset`).
+    - Fix: **flash the modem partitions directly over fastboot** — `fastboot flash md1img images/md1rom.img && fastboot flash md1dsp images/md1dsp.img && fastboot flash md1arm7 images/md1arm7.img && fastboot flash md3img images/md3rom.img` (MIUI's stock `flash_all.sh` does flash the modem over fastboot — no SP Flash Tool or scatter file needed for the modem partitions). Bootloader unlocked → all good.
+    - The stock `md3rom.img` head `b4 45 3e 00` = **identical to the original partition's header** (md5 `cadc0922`, size `0x3e5610`) — the genuine `md3rom` was found in the MIUI fastboot ROM.
+    - **Result: signal fully recovered** (`READY,READY`, md1+md3 ready, TELKOMSEL+3, baseband W1603.P90) — with NO NVRAM format, IMEI intact, `NVD_IMEI/MP0B_001` untouched.
+    - Lesson: a MIUI recovery zip ≠ full stock; what actually repairs the modem is the **fastboot ROM** (it carries `md1rom/md1dsp/md1arm7/md3rom/preloader` + the scatter file). NVRAM polluted by foreign firmware recovers by re-flashing the stock modem with no wipe.
+- **Open path (not attempted)**: patch the MD3 firmware `modem_3_3g_n.img` (the copy in `/system/etc/firmware`, flashable via TWRP):
+  1. Reverse the MD3 speech message handler (the SMEM MD1↔MD3 type-19 receiver / the mailbox messages `[9]=8`/`[9]=11`) → NO-OP or swallow them.
+  2. Or patch the nested-EE guard so the first instance is not overwritten (which yields the real assert file/line).
+  - Next tooling step: a per-function pool-aware disassembler (entrypoints `0x1063ac`/`0x106248`/`0x1067c0`) scanning 16-bit `ldr rX,[pc,#imm]` literals (the script is already written; it produced the 4 references above).
 - **Conclusion**: kernel/modem-era speech subsystem incompatibility (M-gen
   firmware + N-gen AP stack). Only M-gen (Android 6) stacks work.
 - **Status**: not fixable from /system without kernel source + modem research
   (e.g., EE dumps via Comsecuris `mtk-baseband-sanctuary`).
 - **Workaround**: VoIP (WhatsApp/Telegram). Alternatively use an Android 6.0
   ROM for calls.
+
+### 10b-c. Goodix enroll error 1058 — TEE gatekeeper missing
+
+- **Symptom (2026-09-14, after the Goodix switch):** the fingerprint menu
+  works, the sensor produces IRQs and the framework gets acquisitions, but
+  enrollment instantly fails. The TA disassembly shows 1058 is NOT the
+  template limit (that is 1005, `gf_algo_fingers_limit_check`): 1056/1057/
+  1058 are three token checks in `gf_ta_invoke_cmd_entry_point` — 1058 is
+  the **HMAC verification of the 69-byte enroll/auth token** (37-byte HAT
+  + 32-byte HMAC) computed by `gf_generate_hmac` → `get_hmac_key`, which
+  derives the key from a 12-byte seed inside the TA via a tlApi call.
+- **Root cause:** LineageOS ships no `gatekeeper.*.so` at all; in
+  `system/core/gatekeeperd/gatekeeperd.cpp`, `hw_get_module_by_class()`
+  fails and gatekeeperd logs "falling back to software GateKeeper"
+  (`SoftGateKeeperDevice`). The soft-signed token cannot satisfy the TA's
+  HMAC check → every enroll returns 1058.
+- **Fix:** MIUI's TEE gatekeeper HAL exists in `system{,-img}/lib{,64}/hw/
+  libMcGatekeeper.so` with `gatekeeper.mt6797.so` / `gatekeeper.nikel.so`
+  symlinks pointing at it (plus the AOSP `3d08821c…` gatekeeper trustlet,
+  already present in the shipped registry). Shipped both arches as
+  `system/lib{,64}/hw/gatekeeper.mt6797.so` (vendor commit 0e5ea60).
+  Requires `libgatekeeper.so` (built by AOSP `system/gatekeeper`), already
+  in the ROM.
+- **Caveat:** credentials enrolled while the soft gatekeeper was active
+  (any PIN/pattern set before this fix) cannot be verified by the TEE
+  gatekeeper. Remove the screen lock before flashing, or wipe
+  `/data/misc/keystore` + `/data/system/locksettings*` in recovery.
+
+### 11. Hotspot 5 GHz DFS channels
+
+- Only non-DFS channels are guaranteed; if the MTK AP firmware rejects
+  5 GHz at `fwReload`, the fallback is to ship 2.4 GHz only and remove the
+  5 GHz band from the framework gate (see #5 patch).
+
+---
+
+### 19. Build-integrity defects found while chasing #8 (2026-09-30)
+
+None of these are the call crash — all four are real defects in the LOS build
+and none of them is caused by the crash. They were found because #8 forced a
+full differential against a working MIUI `/system`. **Not fixed**; listed so the
+next person does not rediscover them.
+
+#### 19.1 RIL SELinux denials — MISDIAGNOSED, correcting the record
+
+An earlier note in this section claimed `mtkrild` runs in the SELinux `toolbox`
+domain. **That was wrong** and is corrected here.
+
+Runtime check on the device:
+
+```
+mtkrild      label=u:r:mtkrild:s0        ls -Z  u:object_r:mtkrild_exec:s0
+gsm0710muxd  label=u:r:gsm0710muxd:s0    ls -Z  u:object_r:gsm0710muxd_exec:s0
+mnld         label=u:r:mnld:s0
+```
+
+The domain and the executable label are both correct. The `toolbox` string that
+prompted the original claim was a `scontext` on a *single* `avc: denied` line,
+not the process's domain. Lesson: confirm a SELinux claim with
+`/proc/<pid>/attr/current` and `ls -Z <binary>`, never from one audit line.
+
+What survives, and correlates perfectly with the crash:
+
+| capture | `avc: denied` total | for `mtkrild` | crash |
+| :--- | ---: | ---: | :--- |
+| MIUI `/system` (+ LOS kernel) | 176 | **0** | no |
+| LOS `/system` | 630 | **146** | yes |
+| LOS `/system` (test G) | 453 | **88** | yes |
+
+The reproducible part is the *denial count*, not a mislabelled domain. The
+denials are an **effect**, not a cause: they appear only once the LOS system
+drives the RIL into a path that requests access it does not have. Since the LOS
+boot runs `androidboot.selinux=permissive` they are all allowed and block
+nothing. Do not chase this as a crash cause.
+
+Note: `device/xiaomi/nikel` still ships **no `sepolicy/` directory and no
+`BOARD_SEPOLICY*` line**, so its policy is inherited wholesale from CM14.1's
+AOSP tree. That happens to be adequate here (all three MTK daemons get correct
+domains via AOSP's `rild`/`radio` rules plus MTK's own prebuilt policy), but it
+is fragile and worth a native `sepolicy/` for the MTK daemons if the policy is
+ever tightened. `SamarV-121/android_device_xiaomi_nikel` (branch `test1/cm-14.1`)
+does carry a 59-file `sepolicy/` with `ril-daemon-mtk.te`,
+`ccci_fsd.te`, `ccci_mdinit.te`, `md_ctrl.te`, `gsm0710muxd.te`,
+`muxreport.te`, `mnld.te`, `nvram_daemon.te`, `thermal_manager.te` and the
+matching `file_contexts`. That tree is the same upstream this device tree was
+forked from (initial commit `db572dc`, Samar Vispute, 2017-05-14), and its
+`sepolicy/` was never present in this lineage's history. Useful as a reference
+if a native policy is ever needed — **but note its build also fails calls**, so
+it is not a working-call reference for #8.
+
+#### 19.2 `md_log_config` is missing
+
+```
+E ccci_mdinit(0): Open md_log_config file failed, errno=2!   (ENOENT)
+```
+
+LOS-only (0 occurrences with the MIUI `/system`). Not currently known to break
+anything, but it means the CCCI modem-logger has no config and is running
+unconfigured.
+
+#### 19.3 `etc/audio_param/b6a/` is missing from the build; parser lib is stale — PARTIALLY FIXED
+
+**Now fixed and verified on device (2026-09-30).** Committed in the vendor
+repo as `d16b395`; a flashable image is at
+`nikelbuild/tmp_miuidiff/x/b6a_system.img`
+(md5 `a113886f681a0880cc157db6903de51f`, pristine LOS + these two changes).
+
+- `proprietary-blobs.txt` lists `etc/audio_param/*.xml` as a **flat** list, so
+  the board-specific `b6a/` subtree present in MIUI (61 XMLs, 380 KiB) was
+  never copied. Fixed by dropping the 61 files into
+  `vendor/xiaomi/nikel/system/etc/audio_param/b6a/` — the vendor tree already
+  does `find-copy-subdir-files(*, vendor/xiaomi/nikel/system/, system/)`, so
+  nothing else needed changing. All 61 verified to parse as valid XML.
+- `libaudio_param_parser.so` in the LOS build is an **older blob**: it has 0
+  occurrences of `b6a` and 0 of `/proc/cmdline`, so it cannot select the
+  per-board parameter directory. The MIUI blob has 2 and 4 respectively.
+  Replaced both the 32-bit and 64-bit copies. `DT_NEEDED` is the same set of
+  10 libraries in the same order and the only new undefined symbol is `atoi`
+  from libc, so the swap is link-safe. Note `lib/` and `lib64/` in the vendor
+  tree are symlinks to `../system/`, so replacing the files under `system/`
+  covers both. `audioserver` is 32-bit, so `system/lib` is the copy that
+  actually loads (verified at runtime: md5 `a698d5aaac12af3f…`).
+- Verified on device: 61 files present, correct md5, `md1`/`md3` ready. The
+  audio HAL now uses Xiaomi's own `b6a` tuning.
+
+**The 1 Hz `inotify` log flood is NOT fixed. Root cause corrected.**
+
+An earlier version of this section blamed the loop on inotify being
+unsupported on FUSE. **That was wrong.** `/proc/uptime`-verified on device:
+
+```
+$ adb shell strace -f -p <audioserver> -e trace=inotify_add_watch
+1354  inotify_add_watch(7, "/sdcard/.audio_param/", IN_CLOSE_WRITE)
+      = -1 EACCES (Permission denied)
+```
+
+It is a plain `EACCES` — an ordinary permission problem, not a FUSE
+limitation. `/sdcard` is a FUSE mount mounted with `default_permissions`, so
+the FUSE daemon simply applies the directory mode:
+
+```
+/sdcard/.audio_param   root:sdcard_rw   mode 0771
+audioserver groups:    1006 1013 1026 1031 2950 3001 3002 3003 3007
+                       (sdcard_rw = 3009 is NOT among them)
+```
+
+Consequences, each verified:
+- `mkdir /sdcard/.audio_param_b6a` does **not** help — the directory was
+  already present, and the failure is access, not absence. Creating it also
+  does not stop the errors.
+- `chmod 755` / `chown` are **no-ops**: `/storage/emulated` is a FUSE mount
+  with `user_id=1023` that rejects metadata operations, and `/system` is
+  read-only.
+- Patching the watched path is **not viable either**: the field is 21 bytes
+  and `/system/etc/audio_param` is 23 characters. There is no existing
+  directory of 21 or fewer characters that would resolve correctly, so any
+  such patch would point the parser at the wrong location.
+
+The real fix is to add `audioserver` to the `sdcard_rw` group, i.e. a SELinux
+change. That is blocked on the same grounds as §19.1: `secilc` is not
+available on the build host and `rom_source/system/sepolicy` is a much newer
+AOSP tree than CM14.1, so the policy has to be recompiled from matching
+sources first.
+
+Still a **symptom, not the crash cause** — two independent confirmations:
+patching the watched path away drove the count to 0 with the modem still
+throwing `ee=a3f` (test E), and shipping the full `b6a` + MIUI parser setup
+still crashed (test D, and again on the device).
+
+#### 19.4 MIUI cannot boot on CM14.1 `/data` — `system_server` crash loop
+
+```
+Caused by: java.lang.NumberFormatException: Invalid long:
+           "0 0 0 0 1790711087323 0 1790711087822 0"
+  at com.android.server.pm.PackageManagerService$PackageUsage.readLP(:1130)
+  at PackageManagerService.<init>  →  SystemServer.startBootstrapServices
+```
+
+`/data/system/packages.xml` written by CM14.1 (Android 7.1) is not parseable
+by MIUI (Android 6.0). `system_server` throws in its constructor, init restarts
+it, it throws again — observed **40 restarts in 20 minutes** — so
+`BOOT_COMPLETED` is never sent and the phone sits in the boot animation
+forever with the SoC at full load.
+
+- **Fix: always Format Data when switching ROMs.** After a format MIUI booted
+  normally in 7 minutes.
+- Symptom to recognise: boot animation loops indefinitely, `adb` is up, adb
+  `logcat` is *busy* (that is the crash loop, not progress), and
+  `getprop sys.boot_completed` stays empty while `system_server`'s pid changes.
+- Related: #14 (off-charge bootloop) is a *different* failure with a similar
+  look — check `dmesg`/`bootanimation` progress before assuming either.
+
+#### 19.5 MTK MAL / AudioLink blob set is absent (not yet diagnosed)
+
+MIUI ships 20 telephony/audio files that the LOS build does not:
+`libfvaudio_call.so` (voice-call audio) plus `libmal.so` and
+`libmal_{rds,datamngr,epdga,imsmngr,mdmngr,nwmngr,rilproxy,simmngr}.so`
+(32 and 64 bit each). The client half, `libmdfx.so`, is **md5-identical** in
+both ROMs (`22402641209261b875020d7ca0b9a8c9`) and contains the MFI client
+(`MFI-Conn`, `mfia_task_bootstrap`, `mal-mfi`). On LOS the client is reached and
+then fails repeatedly (`MFI-Conn: socket_local_client() error 2!!`),
+correlating perfectly with the crash at n=6 (0/0/0 on MIUI-system captures,
+20/20/119 on LOS-system captures).
+
+**But `mal-mfi` does not exist anywhere** — not in `/system/bin`, not in
+`/vendor/bin` (this device has no populated `/vendor` partition at all), and
+`/vendor` inside the system image holds only 5 (LOS) / 7 (MIUI) entries with no
+MFI. So MIUI never enters that code path and the correlation is a consequence
+of *how* the LOS system drives the RIL, not a blob that can simply be added.
+Do not spend time adding the 20 libs expecting the error to go away.
+
+---
+
+#### 19.6 Reverse engineering MD1: investigated, NOT FEASIBLE as-is (2026-09-30)
+
+Follow-up to #8, since `chmod 000 /dev/ccci3_aud` proved the crash is
+modem-internal and MD1 is the last untested layer.
+
+**Setup.** Ghidra 12.1.3 headless, `md1rom.img` (15,992,880 byte, md5
+`ff4cb9b57670d69731b72c9898b793a8`, base `0x00f3f7e0`, magic `0x58881688`,
+`LCSH6797_6C_LW_M_MDBIN_PCB01_MT6797_S00.MOLY_LR11_W1603_MD_MP_V13_18_P90`).
+Imported as `ARM:LE:32:v7`; full autoanalysis in 329 s; project 283 MB.
+
+**Finding — MD1 has no symbol table.** An early count suggested ~13k
+`_NAME` strings, which looked like a full symbol table. It is not:
+
+```
+"AUBUAF"            = ARM instructions that happen to decode as ASCII
+"index < MPU_REGION_NUM" = an assert/trace string
+(len16 + name) candidates  = 0
+4-byte address before name = 0 of 2000
+sorted?              = False   (a real symbol table is always sorted)
+Ghidra symbol table   = 0
+```
+
+They are runtime trace/assert strings, as on MD3. The string count was a
+false lead — do not repeat it.
+
+**Finding — the runtime shortcut that made MD3 tractable does not exist for
+MD1.** MD3 was mapped because the exception record carried `PC/LR
+0x00106A85/0x00106A84` from `/proc/ccci_dump`. That buffer does not contain
+an MD1 exception record at all:
+
+```
+ccci_dump*.txt (4 files, all pre-existing):
+  23 unique hex addresses, all in 0x0040xxxxx-0x00455xxxxx
+  MD1 base is 0x00f3f7e0  ->  zero matching addresses
+  contents are "Dump MD layout struct" (pointers/sizes), not program counters
+  "EE0: 00000000 00000000 ..." 3x, all zero
+  only MD3 EE is recorded ("ee=a3d"/"ee=a3f")
+```
+
+So MD1 is 3x larger than MD3, has no symbols, and yields no PC/LR hint.
+Mapping the SMEM type-19 receiver means searching ~3.4M ARM instructions by
+pattern with no label to confirm a hit — and the disassembly alone cannot
+tell a correct identification from a plausible one.
+
+**Verdict: not feasible without vendor symbols or an MD1-side EE trace.**
+Recorded so nobody spends a day rediscovering it. The only route that would
+change this is a leaked MTK symbol map for `W1603.P90`, or MD logger/DHL
+output from a stock MIUI stack (both MTK-proprietary).
+
+Note: MD1 is TrustZone secure world, so even a known handler would be reached
+through an indirect dispatch table, not the direct xrefs that sufficed on MD3.
+
+---
+
+---
+
+## Investigation log — superseded findings and negative results
+
+Kept so nobody re-treads them. Several conclusions here were later proven wrong
+and are corrected in place — read the correction notes, not just the claim.
 
 ### 9. Camera front (5 MP) — historical trail (SUPERSEDED, fix in #12)
 
@@ -826,151 +1685,6 @@ Original trail (2026-09-10/11):
   (drvIdx3→front driver). No DTB surgery, no slave-id HAL patch, no i2c
   table patch is needed.
 
-### 10b. Fingerprint scanner (Goodix + Kinibi TEE) — FIXED (2026-09-14)
-
-- **Status: WORKING.** Enrollment, unlock and screen-off wake-up verified on
-  the integrated build. The full stack ships in the ROM: Kinibi TEE runtime
-  (`mcDriverDaemon` + `ld.mc`, started on `post-fs-data` before keystore),
-  MIUI `fingerprintd` (hardcodes HAL id `gf_fingerprint`),
-  `gf_fingerprint.default.so` + `goodixfingerprintd` + `libgf_*` +
-  `libgoodixfingerprintd_binder`, the 66-file MIUI mcRegistry (incl. the
-  Goodix trustlet and the AOSP gatekeeper trustlet), and the TEE gatekeeper
-  HAL (`gatekeeper.mt6797.so` = `libMcGatekeeper.so`, 64+32 — required, see
-  #10b-c). The kernel bd54 prebuilt's Goodix driver loads `gf_ta.axf` into
-  the TEE at probe.
-
-- **Sensor identity — FINAL (2026-09-14, corrected):** the device sensor is a
-  **GOODIX on SPI0** (`soc/spi@1100a000/goodix-fp@1`), NOT the FPC1145. Proof:
-  with the TEE daemon up, the kernel-driver-loaded goodix TA (`gf_ta.axf`)
-  answers `GF_CMD_INIT` with **err = 0** inside the TEE, while the FPC TA
-  returns -3/FPC_ERROR_COMM (it probes SPI1, where nothing is attached).
-  MIUI's `/system/bin/fingerprintd` hardcodes HAL id **"gf_fingerprint"**;
-  the `fingerprint.mt6797.so` FPC stack in MIUI's system.img is for another
-  device revision.
-- **Real stack (from MIUI system.img):**
-  `fingerprint.mt6797.so` (FPC TEE HAL, `fpc_tee_*`, 32+64 bit) +
-  `lib_fpc_tac_shared.so` (hardcodes `/system/app/mcRegistry/0401…0.tlbin`)
-  + trustlet `0401…0.tlbin` (the FPC TA, MCLF/Thumb, 698 KB) + SPI device
-  root `030b/030c` (Drspi, load-on-demand from the registry) +
-  `mcDriverDaemon` (t-base V006, Aug 2018 build; TEE = V009 from the `tee1`
-  partition, untouched) + MIUI `fingerprintd` (aarch64, Android 23; the
-  daemon interface is unchanged in N so LOS's framework works with it).
-- **Dead ends (proven):** the "fpsensor" HAL/TA stack (`0522…tlbin`,
-  Leadcore) belongs to another device variant — its `-12` failure was a
-  red herring. Kernel kthread `ex_open` wants trustlet `070505…` which does
-  not exist in the MIUI registry either (same single failure), and MIUI
-  mounts no `/efs` auth token (MC_AUTH_TOKEN_PATH points nowhere on MIUI
-  too) — both irrelevant. SPI1 needs no 070505 session; the TA drives SPI
-  itself via the Drspi device root.
-- **Live status before integration:** TEE runtime verified working from
-  userspace (device open, 0401 trustlet load, session, notify, TCI round
-  trip, `mcGetSessionErrorCode`=0 — the TA is alive and answering). The
-  TA's `INIT` command returns message error **-3 = FPC_ERROR_COMM** (via
-  the TAC's own error table), i.e. its in-TEE sensor SPI transfer fails;
-  root cause not visible from the normal world. `clk_enable` sysfs write
-  is real (`mt_spi_enable_clk`). All live tests ran against a
-  bind-mount-hacked system; the integrated ROM boot is the real test.
-- **Integration (this commit):**
-  `vendor/xiaomi/nikel/system/`: FPC HAL 32+64 as
-  `lib{,64}/hw/fingerprint.mt6797.so`, `lib_fpc_tac_shared.so` 32+64,
-  `bin/mcDriverDaemon`, `bin/ld.mc`, `bin/fingerprintd`,
-  `lib{,64}/libMcClient.so` + `libMcRegistry.so`, and the full 66-file
-  Kinibi registry at `app/mcRegistry/`. The obsolete fpsensor HAL and the
-  device-tree wrapper shim (`device/fingerprint/`) are removed — MIUI's
-  `fingerprint.mt6797.so` is a real `fingerprint` HAL and is found by
-  `hw_get_module` directly.
-  `init.nikel-fp.rc`: `mobicore` daemon at **class core** (MIUI-exact 7
-  drbins, user system) started on `on fs`; `fingerprintd` class
-  late_start; FPC sysfs nodes (`soc:fpc_interrupt@0/{clk_enable,hw_reset,
-  chip_id,irq,do_wakeup}`) chowned to system; `/data/fpc` + `/data/fpsensor`
-  created; `MC_AUTH_TOKEN_PATH=/data` (MIUI uses a non-existent /efs, same
-  result: daemon runs with device endorsements disabled).
-- **Next:** validate on the integrated build; if the TA still returns
-  -3, the suspects are EMI-MPU region setup inside Drspi and the TEE's
-  view of the kernel-published SPI device.
-- **Boot-loop lesson (2026-09-14, fixed):** adding `libMcClient.so` to
-  /system made MTK's `keystore.mt6797.so` (Keymaster TEE HAL) load for
-  the first time; without the mobicore daemon it retries forever, keystore
-  never registers, system_server NPE-loops on `LockdownVpnTracker`. Fix:
-  the daemon must be up before keystore (class main) — init.nikel-fp.rc is
-  installed as `system/etc/init/nikel-fp.rc` (auto-imported) and starts it
-  on `post-fs-data`. Verified live: manual daemon start → keystore wraps
-  "Keymaster TEE HAL" → boot completes. On that same boot the FPC TA's
-  INIT still returns -3/FPC_ERROR_COMM, so the sensor-SPI failure is real
-  and not an artifact of the hacked test environment.
-
-### 10b-c. Goodix enroll error 1058 — TEE gatekeeper missing
-
-- **Symptom (2026-09-14, after the Goodix switch):** the fingerprint menu
-  works, the sensor produces IRQs and the framework gets acquisitions, but
-  enrollment instantly fails. The TA disassembly shows 1058 is NOT the
-  template limit (that is 1005, `gf_algo_fingers_limit_check`): 1056/1057/
-  1058 are three token checks in `gf_ta_invoke_cmd_entry_point` — 1058 is
-  the **HMAC verification of the 69-byte enroll/auth token** (37-byte HAT
-  + 32-byte HMAC) computed by `gf_generate_hmac` → `get_hmac_key`, which
-  derives the key from a 12-byte seed inside the TA via a tlApi call.
-- **Root cause:** LineageOS ships no `gatekeeper.*.so` at all; in
-  `system/core/gatekeeperd/gatekeeperd.cpp`, `hw_get_module_by_class()`
-  fails and gatekeeperd logs "falling back to software GateKeeper"
-  (`SoftGateKeeperDevice`). The soft-signed token cannot satisfy the TA's
-  HMAC check → every enroll returns 1058.
-- **Fix:** MIUI's TEE gatekeeper HAL exists in `system{,-img}/lib{,64}/hw/
-  libMcGatekeeper.so` with `gatekeeper.mt6797.so` / `gatekeeper.nikel.so`
-  symlinks pointing at it (plus the AOSP `3d08821c…` gatekeeper trustlet,
-  already present in the shipped registry). Shipped both arches as
-  `system/lib{,64}/hw/gatekeeper.mt6797.so` (vendor commit 0e5ea60).
-  Requires `libgatekeeper.so` (built by AOSP `system/gatekeeper`), already
-  in the ROM.
-- **Caveat:** credentials enrolled while the soft gatekeeper was active
-  (any PIN/pattern set before this fix) cannot be verified by the TEE
-  gatekeeper. Remove the screen lock before flashing, or wipe
-  `/data/misc/keystore` + `/data/system/locksettings*` in recovery.
-
-### 11. Hotspot 5 GHz DFS channels
-
-- Only non-DFS channels are guaranteed; if the MTK AP firmware rejects
-  5 GHz at `fwReload`, the fallback is to ship 2.4 GHz only and remove the
-  5 GHz band from the framework gate (see #5 patch).
-
----
-
-## How to apply the out-of-tree fixes
-
-All fixes outside `device/xiaomi/nikel` and `vendor/xiaomi/nikel` are shipped
-as patches in `device/xiaomi/nikel/patches/` and applied by `apply.sh`:
-
-| Patch file | Target repo | Content |
-| :--- | :--- | :--- |
-| `system_netd.patch` | `system/netd` | hostapd ctrl file `wlan0`→`ap0` in `SoftapController.cpp`; rpfilter tether rule non-fatal in `NatController.cpp` |
-| `frameworks_opt_net_wifi.patch` | `frameworks/opt/net/wifi` | 5 GHz soft AP: fixed fallback channel 36, no country-code gate |
-| `system_core.patch` | `system/core` | existing cm-14.1 device patches |
-| `system_sepolicy.patch` | `system/sepolicy` | SELinux rules |
-| `frameworks_av.patch` | `frameworks/av` | existing device patches |
-| `frameworks_native.patch` | `frameworks/native` | existing device patches |
-| `hardware_libhardware.patch` | `hardware/libhardware` | existing device patches |
-
-If you edit `system/netd` or `frameworks/opt/net/wifi` directly instead of
-applying the patches, regenerate the patch afterwards:
-
-```bash
-cd system/netd
-git format-patch <base-commit>..HEAD --stdout > device/xiaomi/nikel/patches/system_netd.patch
-```
-
-### 10b-d. Fingerprint verified end-to-end (2026-09-14)
-
-- After vendor `0e5ea60` (TEE gatekeeper HAL) and a fresh flash: PIN setup
-  works (TEE gatekeeper), enrollment completes, unlock works. The MIUI-era
-  templates that triggered the limit error earlier are no longer an issue —
-  1058 was always the gatekeeper/HMAC failure (see #10b-c), not a template
-  count problem (the real limit error is 1005).
-- Debugging aids if it regresses: `logcat | grep -aE '\[gf_'` (HAL/TA logs),
-  `logcat | grep -a 'software GateKeeper'` (must NOT appear — if it does,
-  the TEE gatekeeper HAL is missing or fails to load), `service check
-  android.hardware.fingerprint.IGoodixFingerprintDaemon`, `service check
-  android.security.keystore`, `pidof mcDriverDaemon goodixfingerprintd
-  fingerprintd`.
-
 ### 10b-e. Call crash (MD3 modem exception) — radio-prop theory, TESTED AND REFUTED (2026-09-30)
 
 > **Status correction (2026-09-30).** This section was originally written as
@@ -1071,7 +1785,7 @@ firmware, so the modem image is not the differentiator either.
 
 ---
 
-## 8f. Controlled single-variable bisect, 2026-09-30 — 6 axes cleared
+### 8f. Controlled single-variable bisect, 2026-09-30 — 6 axes cleared
 
 Method: each test changed exactly one thing relative to a known-good or
 known-bad baseline and re-measured `ee=a3f`, `MD exception`,
@@ -1113,244 +1827,13 @@ Instrumentation limits found the hard way:
 
 ---
 
-## 19. Build-integrity defects found while chasing #8 (2026-09-30)
-
-None of these are the call crash — all four are real defects in the LOS build
-and none of them is caused by the crash. They were found because #8 forced a
-full differential against a working MIUI `/system`. **Not fixed**; listed so the
-next person does not rediscover them.
-
-### 19.1 RIL SELinux denials — MISDIAGNOSED, correcting the record
-
-An earlier note in this section claimed `mtkrild` runs in the SELinux `toolbox`
-domain. **That was wrong** and is corrected here.
-
-Runtime check on the device:
-
-```
-mtkrild      label=u:r:mtkrild:s0        ls -Z  u:object_r:mtkrild_exec:s0
-gsm0710muxd  label=u:r:gsm0710muxd:s0    ls -Z  u:object_r:gsm0710muxd_exec:s0
-mnld         label=u:r:mnld:s0
-```
-
-The domain and the executable label are both correct. The `toolbox` string that
-prompted the original claim was a `scontext` on a *single* `avc: denied` line,
-not the process's domain. Lesson: confirm a SELinux claim with
-`/proc/<pid>/attr/current` and `ls -Z <binary>`, never from one audit line.
-
-What survives, and correlates perfectly with the crash:
-
-| capture | `avc: denied` total | for `mtkrild` | crash |
-| :--- | ---: | ---: | :--- |
-| MIUI `/system` (+ LOS kernel) | 176 | **0** | no |
-| LOS `/system` | 630 | **146** | yes |
-| LOS `/system` (test G) | 453 | **88** | yes |
-
-The reproducible part is the *denial count*, not a mislabelled domain. The
-denials are an **effect**, not a cause: they appear only once the LOS system
-drives the RIL into a path that requests access it does not have. Since the LOS
-boot runs `androidboot.selinux=permissive` they are all allowed and block
-nothing. Do not chase this as a crash cause.
-
-Note: `device/xiaomi/nikel` still ships **no `sepolicy/` directory and no
-`BOARD_SEPOLICY*` line**, so its policy is inherited wholesale from CM14.1's
-AOSP tree. That happens to be adequate here (all three MTK daemons get correct
-domains via AOSP's `rild`/`radio` rules plus MTK's own prebuilt policy), but it
-is fragile and worth a native `sepolicy/` for the MTK daemons if the policy is
-ever tightened. `SamarV-121/android_device_xiaomi_nikel` (branch `test1/cm-14.1`)
-does carry a 59-file `sepolicy/` with `ril-daemon-mtk.te`,
-`ccci_fsd.te`, `ccci_mdinit.te`, `md_ctrl.te`, `gsm0710muxd.te`,
-`muxreport.te`, `mnld.te`, `nvram_daemon.te`, `thermal_manager.te` and the
-matching `file_contexts`. That tree is the same upstream this device tree was
-forked from (initial commit `db572dc`, Samar Vispute, 2017-05-14), and its
-`sepolicy/` was never present in this lineage's history. Useful as a reference
-if a native policy is ever needed — **but note its build also fails calls**, so
-it is not a working-call reference for #8.
-
-### 19.2 `md_log_config` is missing
-
-```
-E ccci_mdinit(0): Open md_log_config file failed, errno=2!   (ENOENT)
-```
-
-LOS-only (0 occurrences with the MIUI `/system`). Not currently known to break
-anything, but it means the CCCI modem-logger has no config and is running
-unconfigured.
-
-### 19.3 `etc/audio_param/b6a/` is missing from the build; parser lib is stale — PARTIALLY FIXED
-
-**Now fixed and verified on device (2026-09-30).** Committed in the vendor
-repo as `d16b395`; a flashable image is at
-`nikelbuild/tmp_miuidiff/x/b6a_system.img`
-(md5 `a113886f681a0880cc157db6903de51f`, pristine LOS + these two changes).
-
-- `proprietary-blobs.txt` lists `etc/audio_param/*.xml` as a **flat** list, so
-  the board-specific `b6a/` subtree present in MIUI (61 XMLs, 380 KiB) was
-  never copied. Fixed by dropping the 61 files into
-  `vendor/xiaomi/nikel/system/etc/audio_param/b6a/` — the vendor tree already
-  does `find-copy-subdir-files(*, vendor/xiaomi/nikel/system/, system/)`, so
-  nothing else needed changing. All 61 verified to parse as valid XML.
-- `libaudio_param_parser.so` in the LOS build is an **older blob**: it has 0
-  occurrences of `b6a` and 0 of `/proc/cmdline`, so it cannot select the
-  per-board parameter directory. The MIUI blob has 2 and 4 respectively.
-  Replaced both the 32-bit and 64-bit copies. `DT_NEEDED` is the same set of
-  10 libraries in the same order and the only new undefined symbol is `atoi`
-  from libc, so the swap is link-safe. Note `lib/` and `lib64/` in the vendor
-  tree are symlinks to `../system/`, so replacing the files under `system/`
-  covers both. `audioserver` is 32-bit, so `system/lib` is the copy that
-  actually loads (verified at runtime: md5 `a698d5aaac12af3f…`).
-- Verified on device: 61 files present, correct md5, `md1`/`md3` ready. The
-  audio HAL now uses Xiaomi's own `b6a` tuning.
-
-**The 1 Hz `inotify` log flood is NOT fixed. Root cause corrected.**
-
-An earlier version of this section blamed the loop on inotify being
-unsupported on FUSE. **That was wrong.** `/proc/uptime`-verified on device:
-
-```
-$ adb shell strace -f -p <audioserver> -e trace=inotify_add_watch
-1354  inotify_add_watch(7, "/sdcard/.audio_param/", IN_CLOSE_WRITE)
-      = -1 EACCES (Permission denied)
-```
-
-It is a plain `EACCES` — an ordinary permission problem, not a FUSE
-limitation. `/sdcard` is a FUSE mount mounted with `default_permissions`, so
-the FUSE daemon simply applies the directory mode:
-
-```
-/sdcard/.audio_param   root:sdcard_rw   mode 0771
-audioserver groups:    1006 1013 1026 1031 2950 3001 3002 3003 3007
-                       (sdcard_rw = 3009 is NOT among them)
-```
-
-Consequences, each verified:
-- `mkdir /sdcard/.audio_param_b6a` does **not** help — the directory was
-  already present, and the failure is access, not absence. Creating it also
-  does not stop the errors.
-- `chmod 755` / `chown` are **no-ops**: `/storage/emulated` is a FUSE mount
-  with `user_id=1023` that rejects metadata operations, and `/system` is
-  read-only.
-- Patching the watched path is **not viable either**: the field is 21 bytes
-  and `/system/etc/audio_param` is 23 characters. There is no existing
-  directory of 21 or fewer characters that would resolve correctly, so any
-  such patch would point the parser at the wrong location.
-
-The real fix is to add `audioserver` to the `sdcard_rw` group, i.e. a SELinux
-change. That is blocked on the same grounds as §19.1: `secilc` is not
-available on the build host and `rom_source/system/sepolicy` is a much newer
-AOSP tree than CM14.1, so the policy has to be recompiled from matching
-sources first.
-
-Still a **symptom, not the crash cause** — two independent confirmations:
-patching the watched path away drove the count to 0 with the modem still
-throwing `ee=a3f` (test E), and shipping the full `b6a` + MIUI parser setup
-still crashed (test D, and again on the device).
-
-### 19.4 MIUI cannot boot on CM14.1 `/data` — `system_server` crash loop
-
-```
-Caused by: java.lang.NumberFormatException: Invalid long:
-           "0 0 0 0 1790711087323 0 1790711087822 0"
-  at com.android.server.pm.PackageManagerService$PackageUsage.readLP(:1130)
-  at PackageManagerService.<init>  →  SystemServer.startBootstrapServices
-```
-
-`/data/system/packages.xml` written by CM14.1 (Android 7.1) is not parseable
-by MIUI (Android 6.0). `system_server` throws in its constructor, init restarts
-it, it throws again — observed **40 restarts in 20 minutes** — so
-`BOOT_COMPLETED` is never sent and the phone sits in the boot animation
-forever with the SoC at full load.
-
-- **Fix: always Format Data when switching ROMs.** After a format MIUI booted
-  normally in 7 minutes.
-- Symptom to recognise: boot animation loops indefinitely, `adb` is up, adb
-  `logcat` is *busy* (that is the crash loop, not progress), and
-  `getprop sys.boot_completed` stays empty while `system_server`'s pid changes.
-- Related: #14 (off-charge bootloop) is a *different* failure with a similar
-  look — check `dmesg`/`bootanimation` progress before assuming either.
-
-### 19.5 MTK MAL / AudioLink blob set is absent (not yet diagnosed)
-
-MIUI ships 20 telephony/audio files that the LOS build does not:
-`libfvaudio_call.so` (voice-call audio) plus `libmal.so` and
-`libmal_{rds,datamngr,epdga,imsmngr,mdmngr,nwmngr,rilproxy,simmngr}.so`
-(32 and 64 bit each). The client half, `libmdfx.so`, is **md5-identical** in
-both ROMs (`22402641209261b875020d7ca0b9a8c9`) and contains the MFI client
-(`MFI-Conn`, `mfia_task_bootstrap`, `mal-mfi`). On LOS the client is reached and
-then fails repeatedly (`MFI-Conn: socket_local_client() error 2!!`),
-correlating perfectly with the crash at n=6 (0/0/0 on MIUI-system captures,
-20/20/119 on LOS-system captures).
-
-**But `mal-mfi` does not exist anywhere** — not in `/system/bin`, not in
-`/vendor/bin` (this device has no populated `/vendor` partition at all), and
-`/vendor` inside the system image holds only 5 (LOS) / 7 (MIUI) entries with no
-MFI. So MIUI never enters that code path and the correlation is a consequence
-of *how* the LOS system drives the RIL, not a blob that can simply be added.
-Do not spend time adding the 20 libs expecting the error to go away.
-
----
-
-### 19.6 Reverse engineering MD1: investigated, NOT FEASIBLE as-is (2026-09-30)
-
-Follow-up to #8, since `chmod 000 /dev/ccci3_aud` proved the crash is
-modem-internal and MD1 is the last untested layer.
-
-**Setup.** Ghidra 12.1.3 headless, `md1rom.img` (15,992,880 byte, md5
-`ff4cb9b57670d69731b72c9898b793a8`, base `0x00f3f7e0`, magic `0x58881688`,
-`LCSH6797_6C_LW_M_MDBIN_PCB01_MT6797_S00.MOLY_LR11_W1603_MD_MP_V13_18_P90`).
-Imported as `ARM:LE:32:v7`; full autoanalysis in 329 s; project 283 MB.
-
-**Finding — MD1 has no symbol table.** An early count suggested ~13k
-`_NAME` strings, which looked like a full symbol table. It is not:
-
-```
-"AUBUAF"            = ARM instructions that happen to decode as ASCII
-"index < MPU_REGION_NUM" = an assert/trace string
-(len16 + name) candidates  = 0
-4-byte address before name = 0 of 2000
-sorted?              = False   (a real symbol table is always sorted)
-Ghidra symbol table   = 0
-```
-
-They are runtime trace/assert strings, as on MD3. The string count was a
-false lead — do not repeat it.
-
-**Finding — the runtime shortcut that made MD3 tractable does not exist for
-MD1.** MD3 was mapped because the exception record carried `PC/LR
-0x00106A85/0x00106A84` from `/proc/ccci_dump`. That buffer does not contain
-an MD1 exception record at all:
-
-```
-ccci_dump*.txt (4 files, all pre-existing):
-  23 unique hex addresses, all in 0x0040xxxxx-0x00455xxxxx
-  MD1 base is 0x00f3f7e0  ->  zero matching addresses
-  contents are "Dump MD layout struct" (pointers/sizes), not program counters
-  "EE0: 00000000 00000000 ..." 3x, all zero
-  only MD3 EE is recorded ("ee=a3d"/"ee=a3f")
-```
-
-So MD1 is 3x larger than MD3, has no symbols, and yields no PC/LR hint.
-Mapping the SMEM type-19 receiver means searching ~3.4M ARM instructions by
-pattern with no label to confirm a hit — and the disassembly alone cannot
-tell a correct identification from a plausible one.
-
-**Verdict: not feasible without vendor symbols or an MD1-side EE trace.**
-Recorded so nobody spends a day rediscovering it. The only route that would
-change this is a leaked MTK symbol map for `W1603.P90`, or MD logger/DHL
-output from a stock MIUI stack (both MTK-proprietary).
-
-Note: MD1 is TrustZone secure world, so even a known handler would be reached
-through an indirect dispatch table, not the direct xrefs that sufficed on MD3.
-
----
-
-## 20. Rear camera: why AF is dead and the low-light cast survives — full diagnosis (2026-10-01)
+### 20. Rear camera: why AF is dead and the low-light cast survives — full diagnosis (2026-10-01)
 
 Data-driven follow-up to #13. Everything below was measured on the running
 ROM (`build $ date 2026-10-01`, LOS 14.1 + the #12/#13 fixes, MIUI V10.2.1.0
 flash layout).
 
-### 20.1 Kernel differences are ruled out — do not patch the kernel driver
+#### 20.1 Kernel differences are ruled out — do not patch the kernel driver
 
 The MIUI and LOS kernels were extracted from their own `boot.img` and
 compared byte for byte:
@@ -1384,7 +1867,7 @@ fix #12 already ships. Two corrections to earlier notes in this file:
   `/proc/kallsyms` on the booted kernel. The earlier "no OTP read" note was
   wrong.
 
-### 20.2 AF never runs at all
+#### 20.2 AF never runs at all
 
 With the HAL3A debug switches on (`debug.af_mgr.enable`,
 `debug.pd_vc.enable`, `log.tag.AFv2=VERBOSE`), a full preview + shutter
@@ -1410,7 +1893,7 @@ Camera 1 (front) : max-num-focus-areas: 0     max-num-metering-areas: 9
 
 So AF is dead for rear *and* front; it is not a rear-sensor problem.
 
-### 20.3 Both symptoms trace to the same cause: a borrowed 3A profile
+#### 20.3 Both symptoms trace to the same cause: a borrowed 3A profile
 
 The #13 fix remaps the rear drvname to `SENSOR_DRVNAME_IMX258_MIPI_RAW`, so
 the s5k3l8 runs on MTK's IMX258 metadata **and** tuning. The HAL says so
@@ -1427,7 +1910,7 @@ free-runs, and #13's night cast (1.68) is what it produces. The same
 borrowed-profile gap is why the AF metadata yields 0 focus regions and AF is
 never started.
 
-### 20.4 The samarv reference camera stack does NOT work here — tested, reverted
+#### 20.4 The samarv reference camera stack does NOT work here — tested, reverted
 
 `lineage-14.1-20170812-UNOFFICIAL-nikel-samarv.zip` ships a completely
 different camera stack than this tree:
@@ -1455,7 +1938,7 @@ again (`CameraService::connect ... camera ID 0`, `startPreview: SurfaceHolder`).
 Do not retry the samarv camera libs — the module needs its whole matching
 camera set, not just these two libraries.
 
-### 20.5 The per-unit OTP path is still reachable (untested)
+#### 20.5 The per-unit OTP path is still reachable (untested)
 
 - `/dev/CAM_CAL_DRV` exists on LOS (char 239:0, `system:camera`).
 - MIUI's `libcameracustom` exports `CAM_CALInit`, `CAM_CALDeviceName` and
@@ -1467,7 +1950,7 @@ camera set, not just these two libraries.
   so a live gain experiment is not available; `debug.awb_mgr.lock` is the
   closest (lock only).
 
-### 20.6 AF profile matrix — DONE (2026-10-01): AF is NOT profile-driven
+#### 20.6 AF profile matrix — DONE (2026-10-01): AF is NOT profile-driven
 
 #13's matrix only ever measured **colour**, so the 6 same-length-swappable
 profiles were re-run reading the AF state instead. Method: the rear drvname
@@ -1504,7 +1987,7 @@ Two tooling traps hit while doing this, both worth remembering:
   plain `umount` returns `Invalid argument`. Always verify the post-mount
   `md5sum` matches the pushed file before trusting a bind-mount experiment.
 
-### 20.7 Where AF actually has to come from
+#### 20.7 Where AF actually has to come from
 
 `max-num-focus-areas: 0` for both cameras and every profile means the AF
 config is not per-sensor-profile. The only AF getter `libcameracustom.so`
@@ -1525,13 +2008,13 @@ That is the remaining route, alongside the OTP route in 20.5.
 
 ---
 
-## 21. Injecting a library into the camera stack without reflashing (2026-10-01)
+### 21. Injecting a library into the camera stack without reflashing (2026-10-01)
 
 Built while attempting the OTP route (20.5). The technique is reusable for any
 experiment that needs code running inside `mediaserver`, and it produced one
 result that changes an earlier conclusion.
 
-### 21.1 The mechanism
+#### 21.1 The mechanism
 
 No NDK in this tree (`prebuilts/ndk` is source, not a prebuilt; the AOSP
 `arm-linux-androideabi-4.9` GCC has an empty sysroot), so a standalone binary
@@ -1565,7 +2048,7 @@ Pieces that had to be right:
 - SELinux does not block any of this: every denial logged
   `permissive=1` on this build.
 
-### 21.2 MIUI's libcameracustom DOES load into LOS's HAL3A
+#### 21.2 MIUI's libcameracustom DOES load into LOS's HAL3A
 
 This revises #9's "too risky to swap" note. With the probe in place of
 `libcameracustom.so`, the camera stack got all the way to:
@@ -1582,7 +2065,7 @@ Exporting a stub for that one symbol made the whole stack load. So the earlier
 the symbol to exist. Whether MIUI's tuning data is *usable* by HAL3A is still
 untested.
 
-### 21.3 S5K3L8_CAM_CALGetCalData is not a getter — it needs a request buffer
+#### 21.3 S5K3L8_CAM_CALGetCalData is not a getter — it needs a request buffer
 
 Calling it with a poisoned buffer crashes deterministically:
 
@@ -1614,7 +2097,7 @@ offline by disassembling `S5K3L8_DoCamCalAWBGain(int,int,int,char*)` — its
 fourth argument is the buffer it fills before calling `GetCalData`. No device
 work needed for that step.
 
-### 21.4 CAM_CAL works on LOS - but the values are NOT a stable factory table
+#### 21.4 CAM_CAL works on LOS - but the values are NOT a stable factory table
 
 Calling MIUI's own client directly, with a **zeroed** request buffer (safe,
 because `buf[0]` is an index and 0 is valid) and `id = 8`:
@@ -1657,7 +2140,7 @@ What this does and does not prove:
 worth dumping the two kernel-returned words directly rather than the derived
 gains, which needs a probe that reads the ioctl config struct itself.
 
-### 21.5 The request fields are NOT the missing piece (negative result)
+#### 21.5 The request fields are NOT the missing piece (negative result)
 
 Instead of hunting the HAL1 caller (these functions have **zero** direct
 callers — they are only reached through a function-pointer table handed out by
@@ -1693,7 +2176,7 @@ Tooling note: the probe's output file must be `touch`ed and `chmod 666`-ed
 `/data/local/tmp`, and a bare `chmod` on a non-existent path silently fails,
 which looks exactly like "the constructor never ran".
 
-### 21.6 The zero gains come from NVRAM, not from libcameracustom
+#### 21.6 The zero gains come from NVRAM, not from libcameracustom
 
 Using the same injection to call the tuning getters inside mediaserver, the
 live tuning data is **not** zero:
@@ -1730,7 +2213,7 @@ s5k3l8 do not exist anywhere on this device or in the ROM**, so there is
 nothing correct to write yet. Empirical per-unit gains (photograph the same
 dark scene under MIUI and LOS and derive the ratio) remain the only source.
 
-### 21.7 Two more probe pitfalls
+#### 21.7 Two more probe pitfalls
 
 - `adb push` over a **bind-mounted file** does not update the mount: the mount
   holds the old inode. Always `umount -l` + `mount --bind` again after pushing
@@ -1741,7 +2224,7 @@ dark scene under MIUI and LOS and derive the ratio) remain the only source.
 
 ---
 
-## 22. Autofocus is dead: two gates found and patched, one still open (2026-10-01)
+### 22. Autofocus is dead: two gates found and patched, one still open (2026-10-01)
 
 Baseline, measured on a freshly wiped /data (so none of this is stale state):
 over a full preview + shutter cycle the AF log contains **304 lines, 300 of
@@ -1750,7 +2233,7 @@ which are init**, and the only "runtime" lines are four calls to
 even with `debug.af_motor.position=1` and a forced
 `debug.af_fullscan.step`. No VCM/AF activity in `dmesg` at all.
 
-### 22.1 Gate 1 — the algorithm is handed mode 0 (patched)
+#### 22.1 Gate 1 — the algorithm is handed mode 0 (patched)
 
 `NS3A::AfAlgo::setAFMode(LIB3A_AF_MODE_T)` lives in **`lib3a.so`** (32-bit
 ARM, delta vaddr−file = `0x5000`):
@@ -1771,7 +2254,7 @@ Patch: `mov r7, r1` → `mov r7, #4` (continuous-picture) at file offset
 `0x70b40` (`e1a07001` → `e3a07004`). After this the log shows
 `[AfAlgo0][setAFMode][Mode]4` four times per session.
 
-### 22.2 Gate 2 — AfMgr drops the mode when a flag is clear (patched)
+#### 22.2 Gate 2 — AfMgr drops the mode when a flag is clear (patched)
 
 `NS3Av3::AfMgr::setAFMode(int,int)` in **`libcam.hal3a.v3.so`** (AArch64,
 delta `0x1d000`):
@@ -1788,7 +2271,7 @@ delta `0x1d000`):
 Patch: `cbz w3, #0xc7b60` → `nop` (`0x34000263` → `0xd503201f`) at file
 offset `0xaab14`.
 
-### 22.3 Result: both gates open, AF still does nothing
+#### 22.3 Result: both gates open, AF still does nothing
 
 With both patches live the algo now receives mode 4, yet the runtime AF
 log stays empty, a forced fullscan produces nothing, and `dmesg` shows no
@@ -1803,7 +2286,7 @@ symbols total, none of them AF). This unit has no per-unit AF calibration in
 NVRAM either. So even with the state machine forced open, the AF algorithm
 would have no lens calibration to work from.
 
-### 22.4 Patches are harmless but currently ineffective
+#### 22.4 Patches are harmless but currently ineffective
 
 Verified after applying both: camera opens, capture works, colours fine
 (`L=139.8`, `idx=1.048`). They change 4 bytes each and can be reverted by
@@ -1823,7 +2306,7 @@ system file without `chcon` produces
 `PackageManagerService: There must be at least one intent filter verifier`
 and a bootloop — the SELinux label must be restored.
 
-### 22.5 What a real fix needs
+#### 22.5 What a real fix needs
 
 Either (a) keep reversing the HAL until every gate is open, and then supply
 a lens calibration, or (b) obtain an AF OTP/calibration source. Since
@@ -1832,7 +2315,7 @@ a lens calibration, or (b) obtain an AF OTP/calibration source. Since
 source on this device — the honest conclusion is that dead AF is a platform
 limitation here, not a tuning mistake.
 
-### 22.6 Eleven gates found; patching them does not start AF
+#### 22.6 Eleven gates found; patching them does not start AF
 
 Continuing past §22.2. The AF-enable flag lives at `AfMgr + 0x5904` (the
 `CCTOP` = contrast-AF flag; note 32-bit load/store offsets are scaled by 4, so
@@ -1873,251 +2356,13 @@ The patches are kept only as research artifacts:
 | `libcam.hal3a.v3.so.af_flag_bypass` | `8c1f95af` | gate 2 |
 | `libcam.hal3a.v3.so.af_gates_open` | `957e41ff` | gates 3-11 |
 
-## 23. Autofocus: the previous stage patched the wrong library (2026-10-01)
-
-§20 and §22 concluded that dead AF was "a platform limitation on this ROM".
-That conclusion was wrong, and so was every patch in §22. Two independent
-defects were sitting in plain sight.
-
-### 23.0 `mediaserver` is 32-bit — it never loads `lib64`
-
-```
-$ adb shell 'grep libcam.hal3a /proc/$(pidof mediaserver)/maps'
-/system/lib/libcam.hal3a.v3.so
-```
-
-Both `system/lib/` and `system/lib64/` ship a `libcam.hal3a.v3.so`, and both
-export the same `MCUDrv` / `AfMgr` symbol names, so a patch aimed at the wrong
-copy is indistinguishable from a correct one until you check `/proc/*/maps`.
-§22 patched the lib64 copy in its entirety (11 gates, two libraries) and none of
-it ever executed. All of it is kept in `cam_af/` as research artifacts only;
-the lib64 prebuilt is back to stock (`md5 1e0823e3`).
-
-Correct targets for this device:
-
-| library | path | notes |
-|---|---|---|
-| HAL3A | `/system/lib/libcam.hal3a.v3.so` | 32-bit ARM/Thumb, 912 KB, delta vaddr-file = `0x8000` |
-| 3A algorithm | `/system/lib/lib3a.so` | 32-bit ARM |
-| custom | `/system/lib/libcameracustom.so` | lens + CAM_CAL tables |
-
-### 23.1 The VCM / AF motor nodes were 0600 root:root
-
-```
-crw------- 1 root root 229, 0 /dev/MAINAF
-crw------- 1 root root 227, 0 /dev/SUBAF
-crw-rw---- 1 system camera 242, 0 /dev/camera-isp
-crw-rw---- 1 system camera 238, 0 /dev/kd_camera_flashlight
-```
-
-`mediaserver` runs as uid 1006 (`camera`). devtmpfs creates every node
-`0600 root:root`, and this ROM widens them from the `chmod`/`chown` block in
-`rootdir/init.mt6797.rc`. That block listed every camera node **except** the AF
-ones — it has `/dev/DW9714AF` (another MTK project's VCM) but not this phone's
-`/dev/MAINAF`. So `MCUDrv`'s `open()` failed, `m_fdMCU` stayed invalid, and the
-lens initialisation silently no-opped. The HAL's own error strings
-(`Err: [mcuIOC_S_SETDRVNAME] please check kernel driver`) never appeared
-because nothing got far enough to call them.
-
-**Fix:** add the six node names the HAL3A knows about to that block —
-`MAINAF`, `SUBAF`, `MAIN2AF`, `GAF001AF`, `GAF002AF`, `GAF008AF` — as
-`chmod 0660` + `chown system camera`. Verified live: `chmod 666` on the two
-nodes was enough to make the difference, and it survives as an init rule so it
-no longer depends on an `adb shell` after every reboot.
-
-### 23.2 The real gate: the lens-table lookup never matches
-
-`AfMgr::CCTMCUNameinit(int)` (0x81cf0, 300 bytes) in the **32-bit** HAL3A:
-
-```
-0x081d30 blx NSCam::IHalSensorList::get()
-0x081d44 tbb [pc, ip]              ; sensorDev - 1 -> 4 cases
-0x081d60 blx r3                    ; vtable slot 9 (u32 mode, u32* out)
-0x081d9e blx MCUDrv::lensSearch     ; (dev, CurrSensorId)
-0x081da6 blx MCUDrv::getCurrLensID ; -> table[CurrLensIdx].LensId
-0x081daa movw r1, #0xffff
-0x081db2 subs r3, r0, r1
-0x081dba movne r3, #1              ; <-- the gate
-0x081dc0 str  r3, [r4, #0x58b8]    ; AfMgr + 0x58b8 = AF_FLAG
-```
-
-`MCUDrv::lensSearch(uint dev, uint sensorId)` (0xb949c, 796 bytes) compares
-`sensorId` against a 16-entry table that `LensCustomGetInitFunc()` fills in from
-`libcameracustom` at runtime:
-
-```
-LensMCU[LensInitTable-0][SensorId]0xffff,[LensId]0xffff
-LensMCU[LensInitTable-1][SensorId]0x0135,[LensId]0x9714
-LensMCU[LensInitTable-2][SensorId]0x3103,[LensId]0x9714
-LensMCU[LensInitTable-3][SensorId]0x0258,[LensId]0x0005
-```
-
-The sensor HAL reports `MainSensorIdx = 0x5e20`, which is in **no** entry:
-
-```
-CAM_CUS_MSDK GetCameraCalData(MainSensorIdx=5e20) Enter
-CAM_CUS_MSDK SensorId == pstSensorInitFunc[2].SensorId=5e20   <-- libcameracustom's own table matches
-CAM_CUS_MSDK SensorId != pstSensorInitFunc[1].SensorId=3103
-```
-
-So the two vendor blobs disagree: `libcameracustom` knows `0x5e20`, the
-`MCUDrv` lens table does not. With no match, `m_u4CurrLensIdx_main` keeps its
-default (the last entry whose `LensId` is `0xffff`, i.e. 0),
-`getCurrLensID()` returns `0xffff`, and `AF_FLAG` is 0 for the whole session.
-
-### 23.3 The patch
-
-One 4-byte Thumb-2 instruction, replacing the loop that computes the *default*
-index (which on this device is already 0, so removing it is behaviour-neutral;
-`r4` is reloaded with `0xffff` immediately afterwards):
-
-| file offset | vaddr | before | after |
-|---|---|---|---|
-| `0x0b1542` | `0xb9542` | `10 2b` `f5 d1` — `cmp r3,#0x10` ; `bne 0xb9532` | `43 f2 03 15` — `movw r5, #0x3103` |
-
-`0x3103` is the S5K3L8 chip ID, so table entry 2 is the correct match for this
-phone; entries 1 and 2 share `LensId 0x9714` anyway, so the resulting AF
-behaviour is identical either way. Reverting is writing `10 2b f5 d1` back.
-
-| file | md5 | contents |
-|---|---|---|
-| `cam_af/libcam.hal3a.v3.32.stock` | `9af2c96b` | stock 32-bit HAL3A |
-| `cam_af/libcam.hal3a.v3.32.patched` | `47b9883f` | + lens-id match |
-
-The vendor preblob `vendor/xiaomi/nikel/system/lib/libcam.hal3a.v3.so` is
-patched, and `patches/camera-af/patch_lensid.py` reproduces it from stock and
-verifies it (`--check`).
-
-### 23.4 What the patch actually bought — measured, not assumed
-
-| observation | before | after |
-|---|---|---|
-| `MCUDrv` lens lookup | `CurrLensIdx 0` | `LensMCU[idx]2 [CurrSensorId]0x3103,[CurrLensIdx]0x0002` |
-| AF commands reaching the algorithm | only `setAFMode` | `Cmd_triggerAF`, `Cmd_lockAF`, `Cmd_unlockAF`, `Cmd_cancelAF` |
-| 3A state machine | never enters AF | `aaa_state_mgr: StateCameraPreview --> StateAF` (6 transitions over 3 focus taps) |
-| photo capture | works | works (no regression) |
-
-The `StateAF` transition count is the honest headline: **0 occurrences before the
-patch, 6 after**, across otherwise identical log captures.
-
-### 23.5 What is still broken
-
-`doAF()` still never runs, so the motor is still never commanded.
-
-```
-$ adb shell 'ls /proc/$(pidof mediaserver)/task/*/comm'   # 38 tasks
-3ATHREAD  AESenThd  F858THREAD  CamClient@Previ  ...  — no AFthread
-```
-
-`AfMgr` has `StateCAF` / `StateTAF` states and
-`ThreadRawImp::enableAFThread(AfStateMgr*)` (0x656d4, 148 bytes) exists, but
-it obtains its thread from `NS3A::IEventIrq::createInstance()` rather than
-`pthread_create`, and it never logs — so either it is not reached or it returns
-NULL. The 3A state machine reaches `StateAF` and leaves again without processing
-a single buffer. There is no camera IRQ in `/proc/interrupts` either; the HAL's
-`HwEventIrq` is built around the `AFIrq` / `HwIRQ3A` names.
-
-That is the next investigation, and unlike §22 it can be done against the
-library that actually runs.
-
-### 23.6 Corrections to earlier sections
-
-* §20's "AF is a platform limitation on this ROM" — **retracted.** At least two
-  concrete bugs were involved (node permissions, lens-table mismatch), and both
-  are fixed. The no-AF-OTP / empty-NVRAM findings from §20 still stand, but as
-  a statement about calibration quality, not about AF being unable to run.
-* §22's eleven gates and their addresses are lib64 addresses. They describe a
-  binary that is never loaded. The 32-bit equivalents are different code.
-* §22's "there are no direct `bl` call sites, a vtable-slot walk is required" is
-  true but was used to justify stopping; with the 32-bit library the same scan
-  does resolve `MCUDrv::lensSearch` -> `AfMgr::CCTMCUNameinit` via the ARM PLT.
-
-### 23.7 Follow-up: AF now runs a full search cycle and times out
-
-After the §23.3 patch and the §23.1 node permissions, the AF chain engages
-completely. `MtkCam/StreamingProcessor` reports a full state machine cycle per
-focus tap (three taps, one log):
-
-```
-[0:isAfCallback] AFstate(1 -> 3), msg(0), msgExt(0), AfCb(0)
-[0:isAfCallback] AFstate(3 -> 5), msg(4), msgExt(0), AfCb(1)      <- searching
-[0:isAfCallback] AFstate(5 -> 3), msg(0), msgExt(0), AfCb(0)      <- ~3.1 s later
-[0:isAfCallback] AFstate(3 -> 6), msg(2048), msgExt(0), AfCb(1)
-[0:isAfCallback] AFstate(6 -> 3), msg(0), msgExt(0), AfCb(0)      <- ~4.6 s later
-```
-
-So AF is no longer dead: it triggers, searches for about three seconds, and
-gives up. That is the signature of an AF that runs but cannot converge, not one
-that never starts — a completely different failure from §20/§22.
-
-Also confirmed present and healthy at the framework level:
-
-```
-afeng-max-focus-step: 1023        <- the AF engine knows the motor step range
-focus-mode: auto
-focus-distances: 0.95,1.9,Infinity
-```
-
-### 23.8 What the remaining blocker is, precisely
-
-Three independent checks all say the VCM motor is never commanded:
-
-| check | result |
-|---|---|
-| `dmesg \| grep -iE 'mainaf\|vcm\|lens\|motor\|gaf'` | empty — the VCM driver never logs anything |
-| HAL error strings (`invalid m_fdMCU`, `mcuIOC_*`, `please check kernel driver`) | never printed, so the ioctl path is not reached at all |
-| `debug.af_motor.position=1` (read by `lib3a.so`, `AfAlgo::isAFMotorStop`) | no motor-position log ever appears |
-
-The reason it is hard to see from the code is that every entry point into the
-lens driver is a virtual call through a vtable that is zero-filled in the file
-and only populated by the loader:
-
-* `MCUDrv::lensSearch` / `getCurrLensID` are reachable only because
-  `AfMgr::CCTMCUNameinit` calls them through the ARM PLT (§23.2).
-* `GAFLensDrv::init`, `LensDrv::init`, `LensSensorDrv::init`,
-  `GAFLensDrv::moveMCU`, `GAFLensDrv::setMCUInfPos` and `LensCustomInit` have
-  **zero** direct `bl` call sites in `.text` — all eight PLT stubs exist and all
-  eight are called virtually.
-* `_ZTVN6NS3Av35AfMgrE` and `_ZTV8AfMgrDev<...>` are zero in the file, and this
-  build's `.rel.dyn` (`ANDROID_REL`, 0x3b98 bytes at file 0x43ac4) does not
-  contain usable addends for that range, so the slot order cannot be recovered
-  statically. It *can* be read from the running process
-  (`/proc/$(pidof mediaserver)/mem` at `load_bias + 0xde890`,
-  `load_bias = 0xec918000` on this boot) — that is the next concrete step.
-
-### 23.9 Diagnostic worth keeping
-
-Patching the `cbz` at `0x65724` (`ThreadRawImp::enableAFThread`, guard before the
-failure log) to a `nop` makes the log unconditional and is a one-instruction way
-to tell "not called" from "called and failed":
-
-```
-E Hal3ARawImp/thread: [enableAFThread()] Err: 591:, [enableAFThread] result(0)
-```
-
-With the lens-id patch alone the AF thread **is** created (`AFthread`,
-`AFOBufThread_1`, `AAOBufThread_1` all appear in `/proc/$(pidof mediaserver)/task`),
-so the nop is diagnostic only and is *not* part of the shipped patch. An earlier
-sampling that showed no `AFthread` was a timing artifact — the thread is created
-lazily when AF is engaged and torn down when it is not.
-
-### 23.10 State of the working tree
-
-* `init.mt6797.rc` and the vendor preblob both carry the fixes, but the device is
-  still running the *old* `system.img`, so the node permissions on the phone
-  right now come from a manual `chmod 666 /dev/MAINAF /dev/SUBAF`. After a reboot
-  without a rebuild the AF chain will be back to "starts, finds no lens, AF off".
-* Correct order for verifying on hardware: build and flash, then check
-  `ls -la /dev/MAINAF` shows `crw-rw---- system camera` before blaming anything
-  else.
-
-## 24. The AF motor chain, mapped end to end (2026-10-01)
+### 24. The AF motor chain, mapped end to end (2026-10-01)
 
 Follow-up to §23.7/§23.8: instead of guessing at the missing `doAF` call, the
 whole motor path was resolved statically. All addresses are in the **32-bit**
 `libcam.hal3a.v3.so` (vaddr = file + `0x8000`).
 
-### 24.1 Reading the relocated vtables
+#### 24.1 Reading the relocated vtables
 
 The vtables are zero-filled in the file and filled by the loader, and this
 build's `.rel.dyn` is `ANDROID_REL` with no usable addends for that range, so
@@ -2140,7 +2385,7 @@ GAFLensDrv   : [+0x0c] init  [+0x10] uninit  [+0x14] moveMCU  [+0x18] getMCUInfo
 AfMgr (IAfMgr sub-object, address point 0xe2d60) : [+0x9c] AfMgr::doAF
 ```
 
-### 24.2 The chain
+#### 24.2 The chain
 
 ```
 AfMgr::Start()                                   0x84a04  (3076 bytes)
@@ -2166,7 +2411,7 @@ AfMgr::MoveLensTo(int&, unsigned)                0x83e1c
   0x83e50  blx   r3
 ```
 
-### 24.3 The VCM is opened successfully — verified, not assumed
+#### 24.3 The VCM is opened successfully — verified, not assumed
 
 `LensDrv`'s strings sit together in `.rodata` and name the node it uses:
 
@@ -2198,7 +2443,7 @@ without it, `init` fails here and nothing downstream can work.
 `/dev/GAF001AF` family, which this handset does not have. `LensDrv` opening
 `/dev/MAINAF` is correct here.
 
-### 24.4 The lens table's LensId column is ignored
+#### 24.4 The lens table's LensId column is ignored
 
 `MCUDrv::createInstance` only recognises `0x1000`, `0xff0001`, `0xff0002` and
 `0xff08`. The `LensId` values libcameracustom puts in the lens table are
@@ -2209,7 +2454,7 @@ LensId is decorative here: the HAL is running on the default branch, not on a
 deliberate match. Worth remembering before trusting any future tuning change
 that keys off LensId.
 
-### 24.5 What is still missing, stated precisely
+#### 24.5 What is still missing, stated precisely
 
 The motor is available and initialised, so the failure is that nobody asks it
 to move during a search. `AfMgr::doAF()` (0x84464, 1292 bytes) is the per-frame
@@ -2227,9 +2472,9 @@ does not model (most likely a function-pointer table rather than a vtable).
 That is the single remaining unknown, and it is a lookup problem, not a
 diagnosis problem: everything upstream of it is now measured and working.
 
-## 25. Proving the VCM opens, and a gdb dead end worth recording (2026-10-01)
+### 25. Proving the VCM opens, and a gdb dead end worth recording (2026-10-01)
 
-### 25.1 `LensDrv::init` runs and the open + ioctls succeed — proven
+#### 25.1 `LensDrv::init` runs and the open + ioctls succeed — proven
 
 §24.3 argued this from the *absence* of error strings, which is weak. The
 strong version: make the open fail on purpose and confirm the error appears.
@@ -2248,7 +2493,7 @@ demonstration that the §23.1 permission fix is load-bearing rather than
 cosmetic: the whole chain downstream of it is fine, and only the node mode
 decides whether the motor is reachable at all.
 
-### 25.2 Correction: the AFO "size = 0" message is not evidence of anything
+#### 25.2 Correction: the AFO "size = 0" message is not evidence of anything
 
 While looking for why the AF statistic buffer never arrives, the log shows:
 
@@ -2264,7 +2509,7 @@ earlier reading of it as the smoking gun was wrong. Likewise
 `StatisticPipe: [deque] WARNING: TG12/TG13 port_0:already stopped` appears
 exactly twice per session, at stream teardown.
 
-### 25.3 gdb works on this device, except in the one library that matters
+#### 25.3 gdb works on this device, except in the one library that matters
 
 `/system/bin/gdbserver` is present, `ro.debuggable=1`, and the AOSP prebuilt
 (`prebuilts/gdb/linux-x86/bin/gdb-orig`, 7.11) drives it fine. Breakpoints in
@@ -2302,13 +2547,13 @@ first giving gdb a mode-correct view of the library. Everything that could be
 established statically has been (§24), and the one thing that cannot is
 whether `AfMgr::doAF` is ever reached.
 
-## 26. The camera tuning blob in this tree is for the wrong sensor (2026-10-01)
+### 26. The camera tuning blob in this tree is for the wrong sensor (2026-10-01)
 
 This is the most consequential finding of the whole investigation, and it was
 found without touching the phone: the MIUI blobs were sitting on disk the whole
 time.
 
-### 26.1 MIUI's blobs are extractable after all
+#### 26.1 MIUI's blobs are extractable after all
 
 Earlier notes (§20) recorded MIUI's libraries as unextractable. That is only
 true of the **OTA packages**. The **fastboot global images** are ordinary
@@ -2329,7 +2574,7 @@ For contrast, the OTA route is genuinely dead: the 9.3.21 zip's
 no filenames. `pre-device=nikel` on both, so there is no non-nikel MIUI here to
 compare against — but none is needed.
 
-### 26.2 Every camera library differs from MIUI's
+#### 26.2 Every camera library differs from MIUI's
 
 | file | MIUI V10.2.1.0 | this tree | size MIUI / ours |
 |---|---|---|---|
@@ -2341,7 +2586,7 @@ compare against — but none is needed.
 All 32-bit, all with identical `DT_NEEDED` sets, so these are same-platform
 builds — not an ABI mismatch, a different source tree.
 
-### 26.3 The tuning blob has no S5K3L8 support whatsoever
+#### 26.3 The tuning blob has no S5K3L8 support whatsoever
 
 ```
 $ strings -a MIUI_libcameracustom.so | grep -c S5K3L8      -> 28   (40 case-insensitive, 44 byte-level)
@@ -2367,7 +2612,7 @@ So §23.2's "the two vendor blobs disagree" was the real defect, seen from one
 side: this tree pairs an AF framework with a tuning blob for a different
 project. The 4-byte patch in §23.3 is a workaround for a symptom of that.
 
-### 26.4 MIUI's blob is not drop-in compatible with this tree
+#### 26.4 MIUI's blob is not drop-in compatible with this tree
 
 Pushing it (`adb push`, no flash) breaks the camera completely:
 
@@ -2400,7 +2645,7 @@ suspect is not proven** — the failure is silent, and "0 cameras, no message"
 could equally be a vendor-tag or metadata-layout mismatch between an Android
 8/9 blob and this Android 7.1 framework.
 
-### 26.5 State after this round
+#### 26.5 State after this round
 
 The phone is back on the known-good configuration and verified: LOS blobs
 unmodified, the §23.3 lens-id patch in place, `/dev/MAINAF` at mode 666,
@@ -2410,17 +2655,18 @@ algorithm running. MIUI's extracted blobs are kept in
 
 Two consequences worth stating plainly:
 
-* **The green cast (§13) is very likely the same root cause.** Wrong-project AWB
-  tuning and a missing `S5K3L8_DoCamCalAWBGain` would produce exactly the wrong
-  gains that were measured. Not tested — the swap does not load — but it is now
-  the leading explanation, and it replaces "the ROM's AWB tuning is off".
-* **The correct fix is the right blob, not a smaller patch.** Making MIUI's
-  `libcameracustom.so` loadable against the 7.1 framework is the next piece of
-  work; until then §23.3 stays in as the mitigation.
+* **The green cast (§13) has the same origin, but it is fixed.** Wrong-project AWB
+  tuning and a missing `S5K3L8_DoCamCalAWBGain` explain exactly the wrong gains
+  that were measured — that is why the cast appeared. §13 fixed it by remapping
+  to the best profile the blob offers, not by correcting the blob.
+* **The correct fix for AF is the right blob, not a smaller patch.** Making a
+  blob that knows S5K3L8 complete 3A init on a 7.1 HAL3A is the next piece of
+  work; until then §23.3 stays in as the mitigation, and convergence stays open
+  (see the correction in §27.8).
 
-## 27. Following up §26: the load blocker is one symbol, and the tuning blob is IMX258's
+### 27. Following up §26: the load blocker is one symbol, and the tuning blob is IMX258's
 
-### 27.1 The missing symbol was the whole load failure — proven
+#### 27.1 The missing symbol was the whole load failure — proven
 
 §26.4 guessed at `_Z21cust_getFlashMaxIDutyiiiPiS_` under `BIND_NOW`. Tested rather
 than guessed: instead of adding a symbol to MIUI's blob, redirect LOS's HAL3A so
@@ -2448,7 +2694,7 @@ the MTK stack loads whole. **§26.4's suspect is confirmed.** The redirect is a
 test crutch, not a fix — it mis-binds a call with a different signature — but it
 is what made the rest of this section observable.
 
-### 27.2 With the blob loaded, the sensor is finally identified correctly — and then 3A stops
+#### 27.2 With the blob loaded, the sensor is finally identified correctly — and then 3A stops
 
 ```
 baseline (this tree): HAL3A asks for ..._SENSOR_DRVNAME_IMX258_MIPI_RAW
@@ -2473,7 +2719,7 @@ no capture. It stops right after
 `CamProfile}[CamDeviceManagerBase::getNumberOfDevices] : (0-th) ===> [start-->now: 250 ms]`
 with no error on any level.
 
-### 27.3 The static-metadata warnings are pre-existing noise, not a regression
+#### 27.3 The static-metadata warnings are pre-existing noise, not a regression
 
 MIUI's blob triggers far more of them (208 "not found" of 224 attempts, against
 96 of 150 in the baseline), which looked alarming until the counts were split by
@@ -2491,7 +2737,7 @@ and resolved elsewhere. The volume difference just reflects HAL3A asking about
 the S5K3L8 rather than the IMX258. Ignore these warnings; they are not the
 signal.
 
-### 27.4 No correct tuning blob exists in any local ROM
+#### 27.4 No correct tuning blob exists in any local ROM
 
 | source | `libcameracustom.so` | sensors | S5K3L8 |
 |---|---|---|---|
@@ -2511,7 +2757,7 @@ signal.
   `release=6.0`, fingerprint `6.0/MRA58K/V10.2.1.0.MBFMIXM`. A converted 6.0-era
   ROM. That is why its tuning blob cannot finish 3A init against a 7.1 HAL3A.
 
-### 27.5 Where this leaves the AF fix
+#### 27.5 Where this leaves the AF fix
 
 Bridging two MTK camera framework generations — making a 6.0-converted tuning
 blob complete 3A init on a 7.1 HAL3A — is a project, not a patch, and there is no
@@ -2528,10 +2774,11 @@ vendor blob**, now demonstrated rather than inferred:
 * §23.3's four bytes then only have to point the lens table at the entry the
   right blob would have supplied itself.
 
-Same blob, same wrongness, for the §13 green cast: the AWB gains in play are
-IMX258's.
+The same blob explains the §13 green cast's **origin** — the AWB gains in play
+are IMX258's, which is why the cast appeared at all. §13 is nonetheless fixed,
+by remapping to the best profile available; see the correction in §27.8.
 
-### 27.6 Device state
+#### 27.6 Device state
 
 Restored and verified: LOS blobs untouched (`libcameracustom.so 1b89c679`,
 `libcam.halsensor.so 92cf1101`, `libcam.hal3a.v3.so 47b9883f` = the §23.3
@@ -2541,7 +2788,7 @@ lens-id patch), `/dev/MAINAF` 666, `MtkCam` 403 lines, `AFv2` 48 lines,
 MIUI blobs kept at `/mnt/System/ROM-nikel/work/miui_camera_blobs/`.
 `/tmp/opencode/hal_noflash.so` is the §27.1 redirect build (not for shipping).
 
-### 27.7 Every other local source of a tuning blob is exhausted
+#### 27.7 Every other local source of a tuning blob is exhausted
 
 Not a guess — each one was opened and checked.
 
@@ -2571,7 +2818,7 @@ offline costs nothing — the same `simg2img` + `debugfs` path as §26.1, no wip
 fastboot, no LOS reinstall. Only then is the §27.1 eight-byte redirect worth
 replaying to see whether a matching-generation blob completes 3A init.
 
-### 27.8 The Android 6.0 camera stack cannot run on this framework — that closes it
+#### 27.8 The Android 6.0 camera stack cannot run on this framework — that closes it
 
 The §26.1 suggestion of "pull a stock MIUI for this device" was wrong, and the
 device tree says so itself:
@@ -2624,127 +2871,315 @@ So, stated plainly:
 * `libcameracustom.so` in this tree is IMX258 tuning data and will stay that
   way. Its AWB/AE/AF parameters are wrong for this sensor, permanently.
 * Therefore §23.3 is not a stopgap pending a better blob — it is the only
-  option available, and §13's green cast has no fix inside this tree.
+  option available.
 
-## 28. IR remote: the HAL was already written, never enabled (2026-10-01)
+**Correction (2026-10-01).** An earlier version of this section also claimed
+that §13's green cast "has no fix inside this tree". **That was wrong and is
+retracted.** §13 *is* fixed — by the 3A profile remap, and measured: the
+shipped IMX258 profile gives night G\*2/(R+B) = 1.68, the best of the
+full-resolution profiles tested (S5K5E2YA 1.54 but 5 MP only; S5K3P3SX 1.78 at
+13 MP but rejected for daylight). There is no contradiction between §13 and
+§26: the blob carrying IMX258 data is precisely *why* a profile remap was
+needed in the first place.
 
-### 28.1 Symptom
+What genuinely remains open is **autofocus convergence**. The AF plumbing bugs
+are fixed (§23) — AF engages, runs a full search cycle and times out (§23.7) —
+but the lens does not reach focus. That is a tuning problem, not a plumbing
+one: the search parameters the algorithm uses come from the same
+IMX258-sourced profile, so the range, step count and thresholds do not match
+this lens. Fixing it needs S5K3L8 AF tuning data, which §27.8 shows does not
+exist for this framework generation.
 
-An installed IR remote app (`com.duokan.phone.remotecontroller`) opens fine but has
-no "add remote" button, where the same app on other phones shows one.
+---
 
-### 28.2 The hardware and driver are all present
+### 30. Auditing this document against the tree (2026-10-01)
 
-```
-/dev/irtx                crw-rw---- system system 245,0
-kernel symbols           irtx_probe, irtx_isr, switch_irtx_gpio, compare_irtx_code
-driver source            drivers/misc/mediatek/irtx/mt6797/mt_irtx.c
-DT (SoC, mt6797.dtsi)    irtx@1101d000, compatible = "mediatek,irtx",
-                         pwm_ch = <3>, clock-frequency = <26000000>
-kernel config            CONFIG_MTK_IRTX_PWM_SUPPORT=y
-ueventd.mt6797.rc:80     /dev/irtx  0660  system  system
-```
+Every checkable claim in the camera sections was re-verified against the files as
+they exist right now, not against this document. Most holds. Four do not, and one
+of them invalidates the basis for closing the AF problem.
 
-`/dev/irtx` is owned by `system`, which is exactly what `system_server` runs as,
-so permissions are already correct.
+#### 30.1 What verified
 
-### 28.3 The stack is JNI-era, not HIDL
+| claim | section | result |
+|---|---|---|
+| `libcam.hal3a.v3.so` = `47b9883f` | §23.3, §27.6 | ✅ matches |
+| `libcameracustom.so` = `1b89c679` | §26, §27.6 | ✅ matches |
+| `libcam.halsensor.so` = `92cf1101` | §27.6 | ✅ matches |
+| `lib3a.so` = `5ab967b7` | §27.4 | ✅ matches |
+| lib64 `libcam.hal3a.v3.so` = `1e0823e3`, back to stock | §23.0 | ✅ matches |
+| six AF nodes widened in the init `chmod`/`chown` block | §23.1 | ✅ all six present, `chmod 0660` + `chown system camera` |
+| §23.3's 4-byte patch is the shipped blob | §23.3 | ✅ **reproduced byte-identically**, see 30.2 |
 
-`frameworks/base/services/core/java/com/android/server/ConsumerIrService.java`
-declares `native long halOpen()`, `native int halTransmit(long, int, int[])` and
-`native int[] halGetCarrierFrequencies(long)`. The JNI shim
-`frameworks/base/services/core/jni/com_android_server_ConsumerIrService.cpp` calls
-`hw_get_module(CONSUMERIR_HARDWARE_MODULE_ID, …)`. So no `hardware/interfaces/ir`
-is needed — which is fortunate, because that directory does not exist in this
-tree at all.
-
-`hasIrEmitter()` returns `mNativeHal != 0`, so with the module missing every app
-hides its IR UI. That is the actual reason the button is absent — nothing is
-wrong with the app.
-
-### 28.4 The MTK HAL already existed, in the device tree
-
-`device/xiaomi/nikel/consumerir/consumerir.c` (12 210 bytes, committed as
-`1e29b00`) is a complete implementation. Its waveform conversion, which had to be
-recovered from the driver, is:
-
-```c
-buffer_len = ceil(total_time / (float)32);      /* one bit per microsecond */
-for (i = 0; i < pattern_len; i++)
-    for (j = 0; j < pattern[i]; j++) {         /* pattern[] arrives in uS */
-        if (current_level) *(wave_buffer + int_ptr) |=  (1 << bit_ptr);
-        else               *(wave_buffer + int_ptr) &= ~(1 << bit_ptr);
-        bit_ptr++; if (bit_ptr == 32) { bit_ptr = 0; int_ptr++; }
-    }
-current_level = !current_level;
-ioctl(fd, IRTX_IOC_SET_CARRIER_FREQ, &carrier_freq);
-write(fd, (char *)wave_buffer, buffer_len * 4);
-```
-
-This matches the driver exactly and explains its otherwise odd constant:
-`PWM_MODE_MEMORY_REGS.HDURATION = 25` at a 26 MHz clock is 0.96 µs, i.e. one
-microsecond per bit. Its `IRTX_IOC_SET_CARRIER_FREQ` is `_IOW('R', 0, unsigned
-int)` = `0x40045200`, byte-identical to `IRTX_IOC_SET_CARRIER_FREQ` in the
-kernel's `mt_irtx.h`.
-
-### 28.5 Three gates were shut
+The AF patch chain was reproduced end to end rather than trusted:
 
 ```
-device/xiaomi/nikel/board.mk:29            MTK_IRTX_SUPPORT := true
-device/xiaomi/nikel/consumerir/Android.mk  ifeq ($(strip $(MTK_IRTX_SUPPORT)),yes)
+stock  9af2c96b45bc4f6f9741334d7c26eaa5   (out/.../target_files-6223261ea7)
+  -> patch_lensid.py
+patched 47b9883f8f7a41674ed11bc8a96ad533
+  cmp against vendor/xiaomi/nikel/lib/libcam.hal3a.v3.so  ->  identical
 ```
 
-`true` is not `yes`, so the entire module definition was skipped. Then:
+`patch_lensid.py --check` correctly reports `stock` on the stock blob and
+`already patched` on the shipped one.
 
-* `device/xiaomi/nikel/consumerir/Android.mk` marks the module
-  `LOCAL_MODULE_TAGS := optional`, so even when defined it is installed only if
-  named in `PRODUCT_PACKAGES`. Nothing did.
-* `android.hardware.consumerir` was never installed; the AOSP file already exists
-  at `frameworks/native/data/etc/android.hardware.consumerir.xml` and was simply
-  not listed.
+#### 30.2 Correction 1 — the stock blob's documented location does not exist
 
-Result: `/system/lib/hw/` had no `consumerir.*.so` at all.
+§23.3's table lists `cam_af/libcam.hal3a.v3.32.stock` (`9af2c96b`) and
+`cam_af/libcam.hal3a.v3.32.patched` (`47b9883f`), and §23.0 says the §22 research
+artifacts "are kept in `cam_af/`". **There is no `cam_af/` directory anywhere in
+this repository.** The stock blob only exists inside `out/`:
 
-### 28.6 Fix — three lines, all three must land together
+```
+out/target/product/nikel/obj/PACKAGING/target_files_intermediates/
+    lineage_nikel-target_files-{1c6bd44c6b,6223261ea7}/SYSTEM/lib/libcam.hal3a.v3.so
+```
 
-| file | change |
+`out/` is disposable — `mka clean` or a fresh checkout destroys the only copy, and
+after that `patch_lensid.py` cannot be run at all, since it refuses to touch
+anything it does not recognise. The documented input to the documented procedure
+is gone. Restoring the stock blob to `patches/camera-af/` is a one-file fix and
+closes this.
+
+#### 30.3 Correction 2 — `libcam.metadata.so` is not an "empty shim"
+
+§13 states "`libcam.metadata.so` is an empty shim in this ROM; the LENS
+constructors are absent for ALL sensors". That reading comes from the wrong file.
+`vendor/xiaomi/nikel/lib/libcam.metadata.so` is a **symlink**, and a reader that
+takes `stat` size at face value sees 32–42 bytes:
+
+```
+lib/libcam.metadata.so -> ../system/lib/libcam.metadata.so      (symlink, 32 B target string)
+lib/libcam.metadata.so    = 32 B   md5 b03892a9
+lib/system/lib/libcam.metadata.so = 83 504 B  md5 b03892a9
+```
+
+The same applies to `libcamera_metadata.so` (35 B link → 36 448 B real) and
+`libcam.metadataprovider.so` (40 B link → 431 720 B real). None of them are shims.
+Any conclusion of the form "library X is empty in this tree" reached by measuring
+`vendor/xiaomi/nikel/lib/` is unreliable and should be re-derived from
+`vendor/xiaomi/nikel/system/lib/`.
+
+#### 30.4 Correction 3 — §27.8's dead end rests on a wrong measurement
+
+§27.8 concludes that the Android 6.0 camera stack cannot be bridged to this 7.1
+framework, and cites as the reason that `libcamera_metadata.so` contains zero
+`VectorImpl` symbols and "cannot be swapped" because it is built from LOS source.
+
+**`VectorImpl` is not in `libcamera_metadata.so`.** It is in the libraries that
+*use* it:
+
+| library | `VectorImpl` exports |
 |---|---|
-| `board.mk` | `MTK_IRTX_SUPPORT := true` → `yes` |
-| `common.mk` | `PRODUCT_PACKAGES += consumerir.$(TARGET_BOARD_PLATFORM)` |
-| `permissions.mk` | install `android.hardware.consumerir.xml` into `system/etc/permissions` |
+| `libcamera_metadata.so` | 0 |
+| `libcameraservice.so` | 22 |
+| `libcamera_client.so` | 18 |
+| `libgui.so` | 19 |
 
-They are not independent. `ConsumerIrService`'s constructor throws if the feature
-is declared but `halOpen()` returns 0, **and** if `halOpen()` returns non-zero
-while the feature is absent — either way `system_server` fails to boot:
+Those three are already LOS 14.1 builds in this tree and they do export the
+symbols. The import side was then re-measured from scratch, unioning every
+defined symbol in the tree: the eight camera libraries, `libc++_shared.so`
+(armeabi-v7a), and all 407 `.so` in the built `target_files` `SYSTEM/lib`
+(158 788 unique symbols).
 
-```java
-mNativeHal = halOpen();
-if (hasSystemFeature(FEATURE_CONSUMER_IR)) {
-    if (mNativeHal == 0) throw new RuntimeException("FEATURE_CONSUMER_IR present, but no IR HAL loaded!");
-} else if (mNativeHal != 0) {
-    throw new RuntimeException("IR HAL present, but FEATURE_CONSUMER_IR is not set!");
-}
+| MIUI library | undefined imports | unresolvable in this tree |
+|---|---|---|
+| `miui_lib3a.so` | 61 | 0 |
+| `miui_libcam.hal3a.v3.so` | 298 | **2** |
+| `miui_libcam.halsensor.so` | 120 | 0 |
+| `miui_libcameracustom.so` | 48 | 0 |
+| **union of all four** | **357** | **2** |
+
+§27.8 reports 28 unresolvable imports sinking `libcam.hal3a.v3` and 122 across the
+set. The measured figure is **2 (0.6%)**, and both are missing *overloads*, not a
+changed ABI:
+
+```
+_ZN5NSCam9IMetadata6IEntry9push_backERKyNS_9Type2TypeIyEE
+    MIUI wants  push_back(uint32_t const&, Type2Type<unsigned int>)
+    tree has   push_back(MRational const&, …)   push_back(MSize const&, …)
+               push_back(char|short|float|int8|double const&, …)
+    -> the plain uint32_t overload is simply absent
+
+_ZN4NS3A7IPdAlgo14createInstanceEi
+    MIUI wants  NS3A::IPdAlgo::createInstance(int)
+    tree has   NS3A::IPdAlgo::createInstance(int, int)
+    -> one fewer parameter
 ```
 
-### 28.7 Known, deliberate: SELinux
+Neither name appears as an import in any of the tree's camera libraries, and
+neither appears as a `dlsym` string in the tree's `lib3a.so` or
+`libcam.hal3a.v3.so`. In MIUI's `libcam.hal3a.v3.so` both are
+`R_ARM_JUMP_SLOT` — real calls, not name lookups.
 
-`/dev/irtx` is labelled `device:s0` and this tree has no rule granting the
-`system` domain `device:chr_file`. Every transmit will therefore log
+**What this does and does not mean.** It does *not* establish that 3A init will
+complete; §27.8's conclusion may still turn out to be right. What it does
+establish is that the evidence offered for it is void, so the problem is open again
+and cheap to retest. Concretely, the next experiment is narrower than "rebuild
+`frameworks/av`":
+
+* §27.2 already showed all five MIUI 3A libraries **load** and the sensor is
+  identified as `S5K3L8_MIPI_RAW_NEW` (§27.2), which is only possible under lazy
+  binding — an eager `BIND_NOW` would have refused the load on these two names.
+* §27.2's symptom is silence: it stops right after
+  `getNumberOfDevices() ... [start-->now: 250 ms]` with no error at any level, and
+  `AFv2` never appears. A call through an unresolved `JUMP_SLOT` lands on address
+  0 and takes `mediaserver` down, which looks exactly like that from the log.
+* So: serve those two symbols from a small shim and watch `mediaserver`. The
+  `wrap.<soname>` linker property plus `setprop ctl.restart mediaserver` does this
+  without reflashing, which is the §21 technique already used here. A shim needs
+  the right C++ layout to forward the call, so the first version should return
+  `NULL`/log rather than guess — the point is to learn whether that call site is
+  reached at all.
+
+#### 30.5 What is still correct
+
+Nothing in §0, §23, §24, §25, §26 or §27.1–§27.3 is contradicted by this audit.
+The `§23.3` patch is reproducible, the AF plumbing fixes are real, and §26's
+finding that `libcameracustom.so` in this tree is IMX258 tuning data stands —
+that is a separate fact from whether a matching-generation blob can be made to
+run.
+
+**Correction to §27.8's own wording:** it is titled "that closes it". It does not
+close it. The correct statement is "the *ABI-bridge* route is unavailable, for the
+wrong reason given; the two-symbol route is untested."
+
+#### 30.6 Trivia worth fixing while in here
+
+* `patch_lensid.py`'s docstring and its `--check` message both point at
+  "BUGFIXES.md #24" for the root cause. It is §23.
+* §23.3 gives the vendor path as `vendor/xiaomi/nikel/system/lib/…`, which exists
+  and is correct, but note that `vendor/xiaomi/nikel/lib/` holds symlinks into it
+  (see 30.3) — always resolve through `system/lib/` when measuring.
+
+## How to apply the out-of-tree fixes
+
+All fixes outside `device/xiaomi/nikel` and `vendor/xiaomi/nikel` are shipped
+as patches in `device/xiaomi/nikel/patches/` and applied by `apply.sh`:
+
+| Patch file | Target repo | Content |
+| :--- | :--- | :--- |
+| `system_netd.patch` | `system/netd` | hostapd ctrl file `wlan0`→`ap0` in `SoftapController.cpp`; rpfilter tether rule non-fatal in `NatController.cpp` |
+| `frameworks_opt_net_wifi.patch` | `frameworks/opt/net/wifi` | 5 GHz soft AP: fixed fallback channel 36, no country-code gate |
+| `system_core.patch` | `system/core` | existing cm-14.1 device patches |
+| `system_sepolicy.patch` | `system/sepolicy` | SELinux rules |
+| `frameworks_av.patch` | `frameworks/av` | existing device patches |
+| `frameworks_native.patch` | `frameworks/native` | existing device patches |
+| `hardware_libhardware.patch` | `hardware/libhardware` | existing device patches |
+
+If you edit `system/netd` or `frameworks/opt/net/wifi` directly instead of
+applying the patches, regenerate the patch afterwards:
+
+```bash
+cd system/netd
+git format-patch <base-commit>..HEAD --stdout > device/xiaomi/nikel/patches/system_netd.patch
+```
+
+- After vendor `0e5ea60` (TEE gatekeeper HAL) and a fresh flash: PIN setup
+  works (TEE gatekeeper), enrollment completes, unlock works. The MIUI-era
+  templates that triggered the limit error earlier are no longer an issue —
+  1058 was always the gatekeeper/HMAC failure (see #10b-c), not a template
+  count problem (the real limit error is 1005).
+- Debugging aids if it regresses: `logcat | grep -aE '\[gf_'` (HAL/TA logs),
+  `logcat | grep -a 'software GateKeeper'` (must NOT appear — if it does,
+  the TEE gatekeeper HAL is missing or fails to load), `service check
+  android.hardware.fingerprint.IGoodixFingerprintDaemon`, `service check
+  android.security.keystore`, `pidof mcDriverDaemon goodixfingerprintd
+  fingerprintd`.
+
+> **Status correction (2026-09-30).** This section was originally written as
+> "fixed by restoring missing MIUI radio props" and claimed *zero* `ee=a3`
+> afterwards. **That claim is false and has been re-tested.** The prop set below
+> plus 35 further telephony props was applied to a pristine LOS system and every
+> outgoing call still produced `ee=a3f` / `Unbalanced enable for IRQ 319` /
+> modem reset (test F, `§8f`). Most of the props listed as "the fix" were
+> **already present** in the LOS `build.prop` before this experiment — see the
+> md5/diff record in `CALL_CRASH.md`. Kept here as a record of what was tried
+> and why it does not work; do not cite it as a fix.
+
+The original symptom description was accurate: every outgoing call crashed the
+modem within ~2 s. MD3 (C2K) raised `exception type(15): Fatal error
+(LTE_EXP)` with fatal code `mon/monf...` (`mon/monfatalerror.c`, speech RX HISR
+path), the kernel logged `[ccci3/ken]MD exception timer 2! ee=a3f`, and the
+radio stack reset. Long investigation (see `CALL_CRASH.md` in the build
+workspace) established:
+
+- The native radio stack is MIUI-identical (kernel, MD1/MD3 images, mtkrild,
+  mtk-ril.so, muxd, audio HAL), and a known-good SamarV ROM with md5-identical
+  `mtk-ril.so` / `librilmtk` / `libmal` / `libmdfx` / `libaed` **also** fails
+  calls — so neither firmware nor the mux daemon explains it.
+- The theory tested in this section was that the M-gen C2K/world-phone radio
+  configuration was missing from the LOS `build.prop`, leaving the C2K speech
+  bridge between MD1 and MD3 half-configured. **Disproved** — see above.
+- The decisive experiment remains the one in §8: blocking the AP's access to
+  the speech path (`chmod 000 /dev/ccci3_aud`) does **not** stop the crash, so
+  the fatal event is the modem-internal MD1→MD3 SMEM type-19 broadcast, not
+  anything the AP does to a device.
+
+Prop set that was applied and did **not** fix the crash:
 
 ```
-avc: denied { open } for … path="/dev/irtx" … permissive=1
+mtk.eccci.c2k=enabled
+ro.mtk_md_sbp_custom_value=0
+persist.radio.apm_sim_not_pwdn=1
+persist.radio.default.sim=0
+persist.radio.mobile_data=0,0
+persist.radio.gemini_support=1
+persist.radio.flashless.fsm=0
+persist.radio.flashless.fsm_cst=0
+persist.radio.flashless.fsm_rw=0
+persist.radio.mtk_dsbp_support=1
+persist.radio.mtk_ps2_rat=W/G
+persist.gemini.sim_num=2
+persist.mtk_dynamic_ims_switch=1
+ro.gemini.smart_sim_switch=false
+ro.mediatek.gemini_support=true
+ril.read.imsi=1
+ril.specific.sm_cause=0
+ril.radiooff.poweroffMD=0
+ril.flightmode.poweroffMD=1
+ro.mtk_external_sim_support=1
+ro.mtk_external_sim_only_slots=0
+ro.sim_me_lock_mode=0
+ro.sim_refresh_reset_by_modem=1
+ro.mtk_eap_sim_aka=1
+ro.mtk_sim_hot_swap_common_slot=1
+ro.mtk_modem_monitor_support=1
+ro.ril.enable.amr.wideband=1
 ```
 
-which is allowed, because this ROM runs SELinux permissive — consistently with
-`ioctl_defines` and `ioctl_macros` being deleted from `system/sepolicy`
-(-2802 lines, see the tree-wide diff). Not worth an sepolicy edit right before a
-build for a denial that changes nothing.
+DO NOT add these (verified failures):
 
-### 28.8 Not verified on hardware
+- `ro.mtk_srlte_support=1` — **MD1 boot hangs at stage S2** (`md_boot_stats`
+  = "TC S2"; muxd freezes, `ril.muxreport` never set, rild never starts).
+- `ro.mtk_world_phone_policy=0` — **ril-daemon-mtk fails to start** even
+  from build.prop at boot (not just a runtime-setprop artifact as once
+  suspected).
+- ims/volte props (`ro.mtk_ims_support`, `ro.mtk_volte_support`,
+  `persist.mtk.volte.enable`, `persist.mtk.ims.video.enable`,
+  `persist.dbg.volte_avail_ovr`) — **safe to re-add, but they do not fix the
+  call crash** (test A, 2026-09-30: MIUI with `ro.mtk_ims_support=1` deleted
+  still called fine, so the prop is not the cause; and test F, LOS with all of
+  them added, still crashes). The 2017 mtk-ril `getImsParam` failure
+  documented in `build.prop` (§2) is the only reason to leave them out.
 
-The device-side check could not run: `/dev/irtx` is `0660 system:system`, the adb
-shell is `uid=2000(shell)`, there is no `su`, and `adb root` is refused. Running
-MIUI's own `/bin/consumerird` from adb therefore failed at `open()` and produced
-no driver log — a misleading result, since the real HAL runs as `system`. The
-protocol itself is confirmed from source on both sides; what still needs hardware
-is whether a transmitter LED is physically present.
+Reference MIUI source: MIUI Hellas 9.3.21 v10-6.0 (HMNote4) full ROM; its
+`system/build.prop` is the authoritative source for these values.
+
+Status recorded on 2026-09-27 and **superseded**: "outgoing calls now connect
+with no modem reset". That observation did not reproduce — 7 further
+single-variable tests since then all crash (§8f). The extras that were
+installed from the MIUI image for C2K parity are still in place and remain
+unproven individually necessary: `/system/etc/mddb/*` (C2K modem database,
+absent from the LOS build), `mcd_default.conf`, `mdb_pub.key`, `mdbversion`;
+`/system/bin/MtkCodecService` (run manually; add an init service on the next
+boot.img rebuild). `viarild`/`libviatelecom-withuim-ril.so` were copied over
+but stock MIUI does not ship viarild either (disabled); harmless if mdinit
+fails to start it.
+
+MD3 partition (mmcblk0p15) was re-flashed from the true stock
+`/system/etc/firmware/modem_3_3g_n.img` (bfe0d82a) — the previous partition
+content (cadc0922) was an experimental-era image, not stock. Note that the
+crash reproduces with **both** images and with the official V10.2.1.0
+firmware, so the modem image is not the differentiator either.
+
+---
