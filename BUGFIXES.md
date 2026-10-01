@@ -1613,3 +1613,46 @@ Recovered protocol (from the same disassembly):
 offline by disassembling `S5K3L8_DoCamCalAWBGain(int,int,int,char*)` — its
 fourth argument is the buffer it fills before calling `GetCalData`. No device
 work needed for that step.
+
+### 21.4 CAM_CAL works on LOS - but the values are NOT a stable factory table
+
+Calling MIUI's own client directly, with a **zeroed** request buffer (safe,
+because `buf[0]` is an index and 0 is valid) and `id = 8`:
+
+```c
+fd = open("/dev/CAM_CAL_DRV", O_RDWR);          /* fd = 7 */
+S5K3L8_DoCamCalAWBGain(fd, b, 8, buf);         /* ret = 0 */
+```
+
+Results (`b` = 0..12, all identical within a session):
+
+| run | `buf[0x894]` (R) | `buf[0x898]` (G) | `buf[0x89c]` (B) | flag `buf[0x874]` |
+|---|---|---|---|---|
+| 1 | 6569 | 512 | 105 | 1 |
+| 2 | 6755 | 512 | 170 | 1 |
+
+What this does and does not prove:
+
+- **Does**: the CAM_CAL route is alive on this ROM — `open()` succeeds, both
+  `ioctl(0xc0146905)` calls return >= 0, and MIUI's parsing code runs to
+  completion without the +628 crash (that crash was purely our poisoned input
+  buffer). So per-unit data *can* be pulled from the kernel on LOS.
+- **Does not**: these are **not** the factory white-balance gains. They are
+  stable within one session but differ between sessions (6569/105 vs
+  6755/170), so they track live state rather than immutable OTP. `G` is a
+  constant 512 — the function hard-codes it (`mov r0, #0x200; str r0,
+  [r4, #0x898]`), only R and B are computed from the two words the kernel
+  returns through pointers in the ioctl config.
+- The two request fields that are still unknown are `buf[0x20]` and
+  `buf[0x24]`: `DoCamCalAWBGain` copies them straight into the ioctl config
+  (`ldr r2, [r4, #0x20]` / `ldr r3, [r4, #0x24]`) and we send zeros, so the
+  kernel is being asked for an unidentified block. In MIUI those two fields are
+  filled by the caller from the 3A struct. Until they are known, the returned
+  words cannot be interpreted - which is consistent with them looking like
+  live noise rather than calibration.
+
+**Next step if this is picked up again:** find the caller that fills
+`buf[0x20]` / `buf[0x24]` before invoking `DoCamCalAWBGain` (in MIUI's
+`libcamalgo.so` or the HAL1 tuning path) and replay those two values. Also
+worth dumping the two kernel-returned words directly rather than the derived
+gains, which needs a probe that reads the ioctl config struct itself.
