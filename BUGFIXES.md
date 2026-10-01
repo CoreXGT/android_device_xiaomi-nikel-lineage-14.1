@@ -2226,3 +2226,78 @@ So the caller is inside `libcam.hal3a.v3.so` but uses an indirection this scan
 does not model (most likely a function-pointer table rather than a vtable).
 That is the single remaining unknown, and it is a lookup problem, not a
 diagnosis problem: everything upstream of it is now measured and working.
+
+## 25. Proving the VCM opens, and a gdb dead end worth recording (2026-10-01)
+
+### 25.1 `LensDrv::init` runs and the open + ioctls succeed — proven
+
+§24.3 argued this from the *absence* of error strings, which is weak. The
+strong version: make the open fail on purpose and confirm the error appears.
+
+```
+$ adb shell chmod 000 /dev/MAINAF && adb shell killall mediaserver
+$ adb logcat -d | grep LensDrv
+E LensDrv : Err:   153:, main Lens error opening Permission denied
+```
+
+So `LensDrv::init()` is reached from `AfMgr::Start()`'s
+`driver->init(sensorDev)` call, `open("/dev/MAINAF")` fails as expected at
+mode 000, and at mode 666 it succeeds and neither `mcuIOC_S_SETDRVNAME` nor
+`mcuIOC_G_MOTORCALPOS` reports anything. This is also the cleanest possible
+demonstration that the §23.1 permission fix is load-bearing rather than
+cosmetic: the whole chain downstream of it is fine, and only the node mode
+decides whether the motor is reachable at all.
+
+### 25.2 Correction: the AFO "size = 0" message is not evidence of anything
+
+While looking for why the AF statistic buffer never arrives, the log shows:
+
+```
+E afo_buf_mgr: [dequeueHwBuf()] Err: 227:, [dequeueHwBuf] rDQBuf.mvOut.size = 0
+E aao_buf_mgr:  [dequeueHwBuf()] Err: 231:, [dequeueHwBuf] rDQBuf.mvOut.size = 0
+```
+
+`aao_buf_mgr` is the **AE** path, and AE demonstrably works (1570 `AeAlgo`
+lines per capture). So this message is a benign "no new buffer at this
+dequeue" notice emitted by both managers, not a missing-buffer report. An
+earlier reading of it as the smoking gun was wrong. Likewise
+`StatisticPipe: [deque] WARNING: TG12/TG13 port_0:already stopped` appears
+exactly twice per session, at stream teardown.
+
+### 25.3 gdb works on this device, except in the one library that matters
+
+`/system/bin/gdbserver` is present, `ro.debuggable=1`, and the AOSP prebuilt
+(`prebuilts/gdb/linux-x86/bin/gdb-orig`, 7.11) drives it fine. Breakpoints in
+ARM code resolve with usable backtrames:
+
+```
+Thread 1 "mediaserver" hit Breakpoint 3, pthread_mutex_lock
+#1  android::IPCThreadState::getAndExecuteCommand()   libbinder.so
+#2  android::IPCThreadState::joinThreadPool(bool)      libbinder.so
+```
+
+Two gotchas, both worth writing down because they cost hours:
+
+1. **A pty is required.** gdb runs `continue` asynchronously when stdin is not
+   a terminal, so every subsequent command fails with *"Cannot execute this
+   command while the target is running"*. Running gdb under
+   `pty.fork()` makes it synchronous.
+2. **Breakpoints in `libcam.hal3a.v3.so` never fire, because gdb decodes that
+   library as ARM when it is Thumb-2.** `x/6i` on `AfMgr::Start` renders
+
+   ```
+   0xed5c6a04 <_ZN6NS3Av35AfMgr5StartEv>:  stmdb sp!, {r4, r5, ...}
+   ```
+
+   but the actual bytes are `2d e9 f0 4f`, which is Thumb-2 `push.w
+   {r4-r11, lr}`. gdb therefore plants an ARM breakpoint where Thumb
+   executes. `set arm force-mode thumb` and `set arm fallback-mode thumb` are
+   both ignored, because the objfile's ELF architecture says ARM and gdb only
+   consults `.ARM.attributes` when it has real debug info — this library is
+   dynsym-only ("missing debugging information" in `info sharedlibrary`).
+   Hardware breakpoints (`hbreak`) fail the same way.
+
+So: the AF call graph cannot be walked with the debugger on this build without
+first giving gdb a mode-correct view of the library. Everything that could be
+established statically has been (§24), and the one thing that cannot is
+whether `AfMgr::doAF` is ever reached.
