@@ -1656,3 +1656,39 @@ What this does and does not prove:
 `libcamalgo.so` or the HAL1 tuning path) and replay those two values. Also
 worth dumping the two kernel-returned words directly rather than the derived
 gains, which needs a probe that reads the ioctl config struct itself.
+
+### 21.5 The request fields are NOT the missing piece (negative result)
+
+Instead of hunting the HAL1 caller (these functions have **zero** direct
+callers — they are only reached through a function-pointer table handed out by
+`GetSensorInitFuncList`, and MIUI's `system.new.dat` is a sparse image while
+its flashable zip is a block OTA, so the HAL1 library is not extractable from
+what is on disk), the two unknown request fields were swept directly on the
+device: `S5K3L8_DoCamCalAWBGain(fd, 0, 8, buf)` with `buf` zeroed except one
+field at a time, 13 values each, all in one session.
+
+| swept field | values | effect on R/G/B |
+|---|---|---|
+| `buf[0x20]` | 0..12 | none |
+| `buf[0x24]` | 0..12 | none |
+| `buf[0x04]` | 0..2 | none |
+| `b` (arg 2) | 0..12 | none (earlier run) |
+
+Within a session the result is bit-identical on every call
+(`R=0x1934 G=0x200 B=0x122`), so the request fields are **not** what selects
+the data. Across sessions it changes (6452/290, 6569/105, 6755/170 for
+R/B), so whatever the driver returns tracks session/sensor state rather than
+immutable per-unit calibration. `G` is always `0x200` because the function
+hard-codes it.
+
+Remaining open question, and the cheap test for it: whether the variation is
+because a different physical sensor was powered (the function hard-codes
+sensor id 8, but the kernel reads whichever sensor is live) or because the
+driver returns live sensor registers. One run with the rear camera aimed at a
+dark covered lens versus a bright scene would settle it. Until that is done,
+these numbers must not be written into any tuning.
+
+Tooling note: the probe's output file must be `touch`ed and `chmod 666`-ed
+**before** the run — `mediaserver` cannot create files in
+`/data/local/tmp`, and a bare `chmod` on a non-existent path silently fails,
+which looks exactly like "the constructor never ran".
