@@ -1738,3 +1738,96 @@ dark scene under MIUI and LOS and derive the ratio) remain the only source.
 - Verify the build actually produced a new binary before blaming the device
   (the chained `clang && ld && adb push` swallowed one failure and the "new"
   run was the previous probe).
+
+---
+
+## 22. Autofocus is dead: two gates found and patched, one still open (2026-10-01)
+
+Baseline, measured on a freshly wiped /data (so none of this is stale state):
+over a full preview + shutter cycle the AF log contains **304 lines, 300 of
+which are init**, and the only "runtime" lines are four calls to
+`setAFMode`. Zero `doAFProcBuf`, zero focus steps, zero motor positions,
+even with `debug.af_motor.position=1` and a forced
+`debug.af_fullscan.step`. No VCM/AF activity in `dmesg` at all.
+
+### 22.1 Gate 1 — the algorithm is handed mode 0 (patched)
+
+`NS3A::AfAlgo::setAFMode(LIB3A_AF_MODE_T)` lives in **`lib3a.so`** (32-bit
+ARM, delta vaddr−file = `0x5000`):
+
+```
+0x75b70 cmp  r3, #2
+0x75b78 sub  r2, r7, #1        ; r7 = mode
+0x75b7c cmp  r2, #8            ; only modes 1..9 have a case
+0x75b80 addls pc, pc, r2, lsl #2
+0x75b84 b    0x75bf0           ; mode 0 -> default: AF is never configured
+```
+
+Modes 1..9 jump to per-mode setup; **mode 0 falls straight through to the
+default return**, which is why the HAL's own `setAFMode` log always showed
+`[AfAlgo0][setAFMode][Mode]0`.
+
+Patch: `mov r7, r1` → `mov r7, #4` (continuous-picture) at file offset
+`0x70b40` (`e1a07001` → `e3a07004`). After this the log shows
+`[AfAlgo0][setAFMode][Mode]4` four times per session.
+
+### 22.2 Gate 2 — AfMgr drops the mode when a flag is clear (patched)
+
+`NS3Av3::AfMgr::setAFMode(int,int)` in **`libcam.hal3a.v3.so`** (AArch64,
+delta `0x1d000`):
+
+```
+0xc7b04 add  x2, x0, #5, lsl #12
+0xc7b10 ldr  w3, [x2, #0x904]     ; w3 = this->0x5904, an "AF enable" flag
+0xc7b14 cbz  w3, #0xc7b60         ; flag == 0 -> return, mode never stored
+0xc7b18 ldr  w4, [x2, #0x914]     ; previous mode
+0xc7b1c cmp  w4, w1
+0xc7b20 b.eq return               ; same mode -> no-op
+```
+
+Patch: `cbz w3, #0xc7b60` → `nop` (`0x34000263` → `0xd503201f`) at file
+offset `0xaab14`.
+
+### 22.3 Result: both gates open, AF still does nothing
+
+With both patches live the algo now receives mode 4, yet the runtime AF
+log stays empty, a forced fullscan produces nothing, and `dmesg` shows no
+VCM traffic. So at least one more gate remains inside the AF state machine
+(`AfMgr::Start`, `doAF`, `UpdateState*` are all present and unstripped in the
+HAL, so it is findable — it is simply more reversing).
+
+The likely root of the remaining gates is data, not code: the AF params say
+`i4ReadOTP 1`, `AfMgr::readOTP()` exists, but **the kernel exports only
+white-balance OTP** (`S5k3L8_MIPI_read_otp_wb` and friends — 15 S5K3L8
+symbols total, none of them AF). This unit has no per-unit AF calibration in
+NVRAM either. So even with the state machine forced open, the AF algorithm
+would have no lens calibration to work from.
+
+### 22.4 Patches are harmless but currently ineffective
+
+Verified after applying both: camera opens, capture works, colours fine
+(`L=139.8`, `idx=1.048`). They change 4 bytes each and can be reverted by
+flashing `system.img`.
+
+Artifacts in `nikelbuild/cam_af/`:
+
+| file | md5 | note |
+|---|---|---|
+| `lib3a.so.orig` | `5ab967b7` | stock 32-bit `lib3a.so` |
+| `lib3a.so.af_mode4` | `347c8553` | gate 1 patched |
+| `libcam.hal3a.v3.so.af_flag_bypass` | `8c1f95af` | gate 2 patched |
+
+They are installed by hand on the device (`adb remount` + `cp` + `chcon
+u:object_r:system_file:s0`), **not** in the build. Note that replacing a
+system file without `chcon` produces
+`PackageManagerService: There must be at least one intent filter verifier`
+and a bootloop — the SELinux label must be restored.
+
+### 22.5 What a real fix needs
+
+Either (a) keep reversing the HAL until every gate is open, and then supply
+a lens calibration, or (b) obtain an AF OTP/calibration source. Since
+(1) the kernel has no AF OTP, (2) this unit has no AF data in NVRAM, and
+(3) MIUI's working AF comes from its own HAL1 path, option (b) has no
+source on this device — the honest conclusion is that dead AF is a platform
+limitation here, not a tuning mistake.
