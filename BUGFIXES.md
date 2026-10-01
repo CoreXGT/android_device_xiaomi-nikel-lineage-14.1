@@ -2110,3 +2110,119 @@ lazily when AF is engaged and torn down when it is not.
 * Correct order for verifying on hardware: build and flash, then check
   `ls -la /dev/MAINAF` shows `crw-rw---- system camera` before blaming anything
   else.
+
+## 24. The AF motor chain, mapped end to end (2026-10-01)
+
+Follow-up to §23.7/§23.8: instead of guessing at the missing `doAF` call, the
+whole motor path was resolved statically. All addresses are in the **32-bit**
+`libcam.hal3a.v3.so` (vaddr = file + `0x8000`).
+
+### 24.1 Reading the relocated vtables
+
+The vtables are zero-filled in the file and filled by the loader, and this
+build's `.rel.dyn` is `ANDROID_REL` with no usable addends for that range, so
+they were read out of the live process instead:
+
+```
+$ adb shell 'grep libcam.hal3a.v3.so /proc/$(pidof mediaserver)/maps' | head -1
+ec920000-ec9f0000 r-xp 00000000 ... /system/lib/libcam.hal3a.v3.so
+load_bias = 0xec920000 - 0x8000 = 0xec918000
+$ dd if=/proc/$(pidof mediaserver)/mem bs=4096 skip=$(( (0xec918000+0xdb000)/4096 )) count=8 | od -An -tx4 -v
+```
+
+The offset convention was pinned by a cross-check rather than assumed:
+`StateMgr::postToASenThread()` does `ldr r1,[r3,#4]` and the slot at
+`_ZTVThreadRawImp + 0xc` is `postToAESenThread`, so **address point = `_ZTV` + 8**.
+
+```
+ThreadRawImp : [+0x04] postToAESenThread  [+0x08] enableAFThread  [+0x0c] disableAFThread
+GAFLensDrv   : [+0x0c] init  [+0x10] uninit  [+0x14] moveMCU  [+0x18] getMCUInfo  [+0x1c] setMCUInfPos
+AfMgr (IAfMgr sub-object, address point 0xe2d60) : [+0x9c] AfMgr::doAF
+```
+
+### 24.2 The chain
+
+```
+AfMgr::Start()                                   0x84a04  (3076 bytes)
+  0x84d30  blx MCUDrv::getCurrLensID(dev)
+  0x84d44  str.w r0, [r4, #0x58b8]     AF_FLAG = (LensId != 0xffff)
+  0x84d52  ldr.w r3, [r6, #0x9c]       r6 = this + 0x59800
+  0x84d5a  bne  0x84e0c                 already have a driver -> skip
+  0x84d5c  ldr  r0, [r6, #0x78]         LensId
+  0x84d5e  blx  MCUDrv::createInstance(LensId)
+  0x84d62  str.w r0, [r6, #0x9c]        this + 0x5989c = driver
+  0x84d9e  ldr  r2, [r3, #0xc]          driver->init(sensorDev)      [vtable+0x0c]
+
+MCUDrv::createInstance(uint LensId)              0xb9476
+  LensId == 0x1000                     -> 0xc1768 -> 0x5ae64  LensSensorDrv::getInstance()
+  LensId in {0xff0001,0xff0002,0xff08} -> 0xc1778 -> 0x5ae70  GAFLensDrv::getInstance()
+  anything else                        -> 0xc1788 -> 0x5ae7c  LensDrv::getInstance()
+  (0xc17xx are 16-byte long-branch veneers: bx pc; ldr ip,[pc]; add pc,ip,pc)
+
+AfMgr::MoveLensTo(int&, unsigned)                0x83e1c
+  0x83e24  ldr.w r0, [r3, #0x9c]        the driver pointer
+  0x83e28  cbz   r0, 0x83e52            NULL -> silently do nothing
+  0x83e4e  ldr   r3, [r5, #0x14]        driver->moveMCU(sensorDev, pos)  [vtable+0x14]
+  0x83e50  blx   r3
+```
+
+### 24.3 The VCM is opened successfully — verified, not assumed
+
+`LensDrv`'s strings sit together in `.rodata` and name the node it uses:
+
+```
+0xd4038  "LensDrv"
+0xd4040  "Err: %5d:, [getMCUInfo] ioctl - mcuIOC_G_MOTORCALPOS, error %s"
+0xd407f  "/dev/MAINAF"
+0xd408b  "Err: %5d:, main Lens error opening %s"
+0xd40b1  "Err: %5d:, [mcuIOC_S_SETDRVNAME] please check kernel driver"
+0xd4111  "/dev/MAIN2AF"
+```
+
+With `/dev/MAINAF` at mode 666 none of those errors appears. To prove the code
+is actually reached (rather than the errors simply never being printed), the
+node was temporarily made unreadable:
+
+```
+$ adb shell chmod 000 /dev/MAINAF && adb shell killall mediaserver
+$ adb logcat -d | grep 'LensDrv'
+E LensDrv : Err:   153:, main Lens error opening Permission denied
+```
+
+So `LensDrv::init()` runs, `open("/dev/MAINAF")` succeeds, and both ioctls
+(`mcuIOC_S_SETDRVNAME`, `mcuIOC_G_MOTORCALPOS`) return without error. This is
+also the cleanest possible confirmation that the §23.1 permission fix matters:
+without it, `init` fails here and nothing downstream can work.
+
+`GAFLensDrv` is *not* the right driver for this phone — it is the one for the
+`/dev/GAF001AF` family, which this handset does not have. `LensDrv` opening
+`/dev/MAINAF` is correct here.
+
+### 24.4 The lens table's LensId column is ignored
+
+`MCUDrv::createInstance` only recognises `0x1000`, `0xff0001`, `0xff0002` and
+`0xff08`. The `LensId` values libcameracustom puts in the lens table are
+`0x9714` (entries 1 and 2) and `0x0005` (entry 3) — **none of them is
+recognised**, so the `else` branch is always taken. That happens to select
+`LensDrv`, which is the right driver for this handset, but it means the table's
+LensId is decorative here: the HAL is running on the default branch, not on a
+deliberate match. Worth remembering before trusting any future tuning change
+that keys off LensId.
+
+### 24.5 What is still missing, stated precisely
+
+The motor is available and initialised, so the failure is that nobody asks it
+to move during a search. `AfMgr::doAF()` (0x84464, 1292 bytes) is the per-frame
+entry point, reached only as `IAfMgr` vtable slot `+0x9c`, and:
+
+* no `bl` reaches it, and no `bl` reaches the PLT stub for it;
+* no `ldr.w Rt,[Rn,#0x9c]` followed by an indirect call exists in `.text` —
+  all 36 hits for that immediate are plain field accesses on unrelated objects;
+* the only library that imports `IAfMgr` methods at all is `libacdk.so`, and it
+  imports `IAfMgr::init`, `CCTOPAFEnable`, `CCTMCUNameinit` and a dozen others
+  but **not** `doAF`.
+
+So the caller is inside `libcam.hal3a.v3.so` but uses an indirection this scan
+does not model (most likely a function-pointer table rather than a vtable).
+That is the single remaining unknown, and it is a lookup problem, not a
+diagnosis problem: everything upstream of it is now measured and working.
