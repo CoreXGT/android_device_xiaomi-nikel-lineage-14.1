@@ -100,7 +100,7 @@ make otapackage -j4
 | Hotspot 2.4 GHz | ✅ Fixed | netd patches, BUGFIXES.md #4 |
 | Hotspot 5 GHz | ✅ Fixed | framework + netd patches, BUGFIXES.md #5 |
 | ADB on boot | ✅ Fixed | BUGFIXES.md #7 |
-| Camera (rear) | ✅ Fixed | photo + video, BUGFIXES.md #0 and #10 |
+| Camera (rear) | ✅ Fixed | photo + video + autofocus, BUGFIXES.md #0, #10 and #23 — 3A tuning caveat below |
 | Camera (front) | ✅ Fixed | photo, BUGFIXES.md #12 (bd54 kernel + kdSensorList swap, shipped in `prebuilt/kernel`) |
 | Off-charge (charge while powered off) | ✅ Fixed | boots to Android when charger is plugged while off (no KPOC animation), BUGFIXES.md #14 — `off-mode-charge=0` in `para` partition |
 | Voice calls | ❌ Broken | MD3 speech crash, known issue, BUGFIXES.md #8 |
@@ -120,6 +120,20 @@ LOS source (front camera breaks again). Details: BUGFIXES.md #12.
 
 1. **Voice calls crash the C2K modem (MD3)** — not fixable from /system; every
    N-gen (7.x) build has this. Use VoIP apps for calls.
+
+2. **Rear-camera 3A tuning belongs to a different phone.** The
+   `libcameracustom.so` in this tree carries IMX258 / S5K3P3SX / S5K5E2YA tuning
+   and has **zero** S5K3L8 data — the phone's actual sensor. So:
+
+   * Autofocus only engages because BUGFIXES.md #23 forces the lens table to
+     match; without it the HAL looks for a lens that the tuning data says does
+     not exist, and AF never starts.
+   * The white-balance cast in #13 is the same cause — the AWB gains in play are
+     IMX258's — and has **no fix inside this tree**.
+   * Not fixable by swapping blobs: Xiaomi never shipped this phone past Android
+     6.0, and 6.0's camera stack is ABI-incompatible with this 7.1 framework
+     (`android::VectorImpl` vs `android::Vector`, BUGFIXES.md #27). Any real fix
+     needs Xiaomi's own blob for a matching generation.
 
 > Fingerprint requires the mobicore TEE daemon (shipped + started on
 > post-fs-data). If the fingerprint menu errors, check `getprop sys.boot_completed`
