@@ -2301,3 +2301,119 @@ So: the AF call graph cannot be walked with the debugger on this build without
 first giving gdb a mode-correct view of the library. Everything that could be
 established statically has been (§24), and the one thing that cannot is
 whether `AfMgr::doAF` is ever reached.
+
+## 26. The camera tuning blob in this tree is for the wrong sensor (2026-10-01)
+
+This is the most consequential finding of the whole investigation, and it was
+found without touching the phone: the MIUI blobs were sitting on disk the whole
+time.
+
+### 26.1 MIUI's blobs are extractable after all
+
+Earlier notes (§20) recorded MIUI's libraries as unextractable. That is only
+true of the **OTA packages**. The **fastboot global images** are ordinary
+filesystem images:
+
+```
+$ file .../nikel_global_images_V10.2.1.0.MBFMIXM_20190123.0000.00_6.0_global/images/system.img
+Android sparse image, version: 1.0, Total of 786384 4096-byte output blocks
+$ simg2img system.img miui_system.raw && file miui_system.raw
+Linux rev 1.0 ext4 filesystem data, volume name "system"
+$ debugfs -R "dump /lib/lib3a.so MIUI_lib3a.so" miui_system.raw
+```
+
+For contrast, the OTA route is genuinely dead: the 9.3.21 zip's
+`system.new.dat` starts `ff 5a ff 50 55 ff 5a 00` — not the sparse magic
+`3a ff 26 ed`, i.e. encrypted; and the 10.2.2 zip carries a zero-byte
+`system.patch.dat`. The transfer lists are in the "new" format, which stores
+no filenames. `pre-device=nikel` on both, so there is no non-nikel MIUI here to
+compare against — but none is needed.
+
+### 26.2 Every camera library differs from MIUI's
+
+| file | MIUI V10.2.1.0 | this tree | size MIUI / ours |
+|---|---|---|---|
+| `lib3a.so` | `c0c2cb6f` | `5ab967b7` | 720 976 / 782 824 |
+| `libcam.hal3a.v3.so` | `22e95a3d` | `1e0823e3` stock | 892 160 / 912 640 |
+| `libcameracustom.so` | `7a2db01a` | `1b89c679` | 20 795 700 / 10 551 236 |
+| `libcam.halsensor.so` | `0edadfce` | `92cf1101` | 431 724 / 271 980 |
+
+All 32-bit, all with identical `DT_NEEDED` sets, so these are same-platform
+builds — not an ABI mismatch, a different source tree.
+
+### 26.3 The tuning blob has no S5K3L8 support whatsoever
+
+```
+$ strings -a MIUI_libcameracustom.so | grep -c S5K3L8      -> 28   (40 case-insensitive, 44 byte-level)
+$ strings -a libcameracustom.so     | grep -c S5K3L8      ->  0   ( 0 byte-level too)
+```
+
+MIUI's blob exports the sensor's CAM_CAL routines — `S5K3L8_DoCamCalAWBGain`,
+`S5K3L8_DoCamCalModuleVersion`, `S5K3L8_DoCamCal2AGain`, `S5K3L8_DoCamCalPartNumber`,
+`S5K3L8_DoCamCalSingleLsc`, … (23 exported `S5K3L8_*` symbols in total). This
+tree's blob has **not one** byte of it.
+
+That single fact explains the whole §23 tangle. The lens table and the sensor
+id that `MCUDrv::lensSearch` compares against come out of this blob, and they
+describe some *other* sensor:
+
+```
+pstSensorInitFunc[] = { 0x258, 0x3103, 0x5e20 }   <- none of them is the S5K3L8
+lens table LensId    = 0x9714 / 0x0005            <- which MCUDrv::createInstance does not know either
+MainSensorIdx       = 0x5e20                     <- and libcameracustom matches it against its own table
+```
+
+So §23.2's "the two vendor blobs disagree" was the real defect, seen from one
+side: this tree pairs an AF framework with a tuning blob for a different
+project. The 4-byte patch in §23.3 is a workaround for a symptom of that.
+
+### 26.4 MIUI's blob is not drop-in compatible with this tree
+
+Pushing it (`adb push`, no flash) breaks the camera completely:
+
+```
+E CameraService: getCameraVendorTagDescriptor: camera hardware module doesn't exist
+E CAM_PhotoModule: Failed to open camera:0
+E AndroidRuntime: java.lang.ArrayIndexOutOfBoundsException: length=0; index=0
+```
+
+`/proc/$(pidof mediaserver)/maps` then shows only `libcamera_client.so`,
+`libcamera_metadata.so`, `libcameraservice.so` — **no** `libcameracustom`, no
+`libcam.halsensor`, no `lib3a`, no `libcamalgo`, no `libcam.hal3a.v3`. The MTK
+chain dies before its first library and says nothing: no linker error, no
+`dlopen` error, no 3A log at all. Swapping `libcam.halsensor.so` alongside it
+changes nothing.
+
+The obvious suspect is one symbol. Across the whole camera stack, `libcameracustom`
+is consumed by 13 libraries needing 168 symbols, and exactly one is absent from
+MIUI's blob:
+
+```
+_Z21cust_getFlashMaxIDutyiiiPiS_     (torch/flash max duty — unrelated to AF/AWB/AE)
+```
+
+and both blobs are linked `FLAGS_1: NOW`, so every relocation resolves at load
+time rather than lazily. `LensCustomInit`, `LensCustomGetInitFunc`,
+`LensCustomSetIndex` and `cust_isNeedAFLamp` are all present in both, and
+`libcameracustom`'s own nine undefined imports are identical in both. **This
+suspect is not proven** — the failure is silent, and "0 cameras, no message"
+could equally be a vendor-tag or metadata-layout mismatch between an Android
+8/9 blob and this Android 7.1 framework.
+
+### 26.5 State after this round
+
+The phone is back on the known-good configuration and verified: LOS blobs
+unmodified, the §23.3 lens-id patch in place, `/dev/MAINAF` at mode 666,
+`MtkCam` 312 lines, no hardware-module error, `CurrLensIdx 0x0002`, `AFv2`
+algorithm running. MIUI's extracted blobs are kept in
+`/mnt/System/ROM-nikel/work/miui_camera_blobs/` for reference.
+
+Two consequences worth stating plainly:
+
+* **The green cast (§13) is very likely the same root cause.** Wrong-project AWB
+  tuning and a missing `S5K3L8_DoCamCalAWBGain` would produce exactly the wrong
+  gains that were measured. Not tested — the swap does not load — but it is now
+  the leading explanation, and it replaces "the ROM's AWB tuning is off".
+* **The correct fix is the right blob, not a smaller patch.** Making MIUI's
+  `libcameracustom.so` loadable against the 7.1 framework is the next piece of
+  work; until then §23.3 stays in as the mitigation.
