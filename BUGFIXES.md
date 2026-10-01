@@ -2570,3 +2570,58 @@ one means a stock MIUI for this device on Android 8.1/9, and extracting it
 offline costs nothing — the same `simg2img` + `debugfs` path as §26.1, no wipe, no
 fastboot, no LOS reinstall. Only then is the §27.1 eight-byte redirect worth
 replaying to see whether a matching-generation blob completes 3A init.
+
+### 27.8 The Android 6.0 camera stack cannot run on this framework — that closes it
+
+The §26.1 suggestion of "pull a stock MIUI for this device" was wrong, and the
+device tree says so itself:
+
+```
+| Shipped Android Version | 6.0.1 (MIUI M-gen) |
+```
+
+Xiaomi never took the Redmi Note 4 (mt6797) past Android 6.0. There is no stock
+MIUI on Android 8.1/9 to pull. The only MIUI that exists for nikel is the 6.0
+one already extracted and tested.
+
+That leaves using the whole matched 6.0 3A set rather than one blob. It was
+never actually tested — §27.1's "Test A" died in the loader on the one-symbol
+bug, so it says nothing about the generation question. Checked offline first,
+across all five MIUI 3A libraries (`libcam.hal3a.v3`, `libcameracustom`, `lib3a`,
+`libcam.halsensor`, `libcamalgo`):
+
+```
+MIUI libcam.hal3a.v3 UND total              219
+  satisfied by the 5 MIUI libraries          104
+  closable by this tree's libraries           87
+  unresolvable anywhere                       28
+```
+
+and across all five combined: 222 out-of-set imports, of which **122 do not
+exist anywhere in this tree**. The 28 that sink `libcam.hal3a.v3` are almost
+entirely one thing:
+
+```
+_ZN7android10VectorImpl12appendVectorERKS0_
+_ZN7android10VectorImpl13editArrayImplEv
+_ZN7android10VectorImpl16editItemLocationEj
+_ZN5NSCam9IMetadata6IEntry9push_backERKyNS_9Type2TypeIyEE
+…
+```
+
+That is the AOSP 6.0→7.1 camera-metadata ABI change (`android::VectorImpl`
+became `android::Vector`, `IEntry` moved). It lives in
+`libcamera_metadata.so`, which on this device is **built from LOS 14.1 source,
+not shipped as a blob** — `strings /system/lib/libcamera_metadata.so | grep -c
+VectorImpl` → 0. It cannot be swapped. Swapping it would mean shipping an
+AOSP 6.0 camera framework into a 7.1 tree, i.e. rebuilding `frameworks/av`,
+which is exactly what this ROM is not.
+
+So, stated plainly:
+
+* MIUI for nikel exists only as Android 6.0, and 6.0's camera stack is
+  ABI-incompatible with this 7.1 framework in a way no blob swap can bridge.
+* `libcameracustom.so` in this tree is IMX258 tuning data and will stay that
+  way. Its AWB/AE/AF parameters are wrong for this sensor, permanently.
+* Therefore §23.3 is not a stopgap pending a better blob — it is the only
+  option available, and §13's green cast has no fix inside this tree.
