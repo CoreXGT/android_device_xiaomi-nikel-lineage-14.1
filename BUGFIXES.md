@@ -47,6 +47,7 @@ Bug diagnostics use these code paths repeatedly:
 | 28 | **IR remote: HAL never enabled** | ✅ FIXED (not verified on hardware) | §28 |
 | 29 | **ADB ran as root → scrcpy clipboard dead** | ✅ FIXED (needs a `user` build) | §29 |
 | 30 | **Audit of §0/§13/§23/§27 against the tree** | 🔍 2 corrections, 1 voided dead-end | §30 |
+| 31 | **Live re-check of the AF chain** | 🔍 §23 fixes confirmed; `EPERM` on the first VCM ioctl | §31 |
 
 **Two things are commonly misread here:**
 
@@ -3050,6 +3051,112 @@ wrong reason given; the two-symbol route is untested."
 * §23.3 gives the vendor path as `vendor/xiaomi/nikel/system/lib/…`, which exists
   and is correct, but note that `vendor/xiaomi/nikel/lib/` holds symlinks into it
   (see 30.3) — always resolve through `system/lib/` when measuring.
+
+### 31. Live re-check of the AF chain on a fresh build (2026-10-01)
+
+The device came up on a freshly built `lineage_nikel-userdebug 7.1.2 NJH47F
+b225f1b3fd`. §23's fixes were re-verified against it at runtime, not against the
+document, and one new blocker appeared that no section records.
+
+#### 31.1 §23.3's patch is confirmed effective at runtime
+
+```
+D LensMCU : LensMCUlensSearch() - Entry
+D LensMCU : LensMCU[CurrSensorDev]0x0001 [CurrSensorId]0x5e20
+D LensMCU : LensMCU[LensInitTable-2][SensorId]0x3103,[LensId]0x9714
+D LensMCU : LensMCU[idx]2 [CurrSensorId]0x3103,[CurrLensIdx]0x0002
+D LensMCU : LensMCU[CurrLensIdx]2
+```
+
+`CurrLensIdx 2` and the `0x3103` match are exactly what §23.4 documented. The
+log tag is **`LensMCU`**, not `MCUDrv` — §23.4 does not name it, and grepping for
+`MCUDrv` finds nothing. Two consequences worth keeping:
+
+* The entry that carries `LensId 0x9714` is index 2, as §23.3's table predicts.
+* `getCurrLensID()` returns `0x9714`, so `AF_FLAG` is 1 and AF is not
+  short-circuited at `AfMgr+0x58b8`. §23.2's gate is genuinely open.
+
+The patch bytes were also re-confirmed in the shipped blob: `movw r5, #0x3103`
+at vaddr `0xb9542` in `MCUDrv::lensSearch`, and the replaced `cmp r3,#0x10 /
+bne` pair is gone.
+
+#### 31.2 §23.1's node permissions are confirmed, and the ioctl is now reached
+
+```
+D LensDrv : main lens init() [m_userCnt]0  +
+D LensDrv : [main Lens Driver]DW9714AF
+D LensDrv : main lens init() [m_userCnt]1 [fdMCU_main]349 -
+D LensDrv : setMCUParam() - a_CmdId = 1
+D LensDrv : setMCUParam() - a_Param = 0
+E LensDrv : Err:   627:, [setMCUMacroPos] ioctl - mcuIOC_T_SETPARA, error Operation not permitted
+D LensDrv : main lens uninit() [m_userCnt]1 [fdMCU_main]349 +
+```
+
+`/dev/MAINAF` opens (`fd 349`). **This contradicts §23.5**, whose table asserts
+that the HAL error strings "`invalid m_fdMCU`, `mcuIOC_*`, `please check kernel
+driver`" were "never printed, so the ioctl path is not reached at all". The ioctl
+path is now reached, and the very first command is refused.
+
+`mcuIOC_T_SETPARA` is dispatched from `LensDrv::setMCUParam(1, 0)` — a distinct
+code path from `mcuIOC_T_SETMACROPOS`, which the binary also carries and which
+did not run.
+
+#### 31.3 The refusal is not SELinux
+
+Every `avc:` record in `dmesg` on this build ends `permissive=1`, so the policy
+is not enforcing and cannot be the source of the `EPERM`. The refusal therefore
+comes from the driver itself. The kernel is a prebuilt `boot.img` — there is no
+kernel source tree on this machine, so the condition producing `EPERM` in the
+MTK VCM driver cannot be read yet.
+
+Note also that no `mcuIOC_S_SETDRVNAME` line appears before `setMCUParam`,
+although the HAL carries `Err: %5d:, [mcuIOC_S_SETDRVNAME] please check kernel
+driver`. That string not printing means either the call succeeded or it was never
+made; the two are not distinguishable from this log. Whether the driver name is
+registered before parameters are set is the first thing to determine next.
+
+#### 31.4 Two of this session's own mistakes, recorded so they are not repeated
+
+Both were false negatives produced by the measurement, not by the device:
+
+1. `am start -n com.android.camera2/...` was issued with stderr sent to
+   `/dev/null`. **That package does not exist on this build** — the camera is
+   `org.cyanogenmod.snap`. The command failed, the "kamera dibuka" text that
+   followed was an unrelated `echo`, and the `MtkCam` frames then read were the
+   user's own session.
+2. `logcat -c` was run *after* the camera was already open. `LensMCU` and
+   `LensDrv` are emitted during AF-manager init, i.e. at camera open, so the
+   clear erased exactly the lines being looked for. Every subsequent read said
+   "never called".
+
+The correct sequence is: force-stop, `logcat -c`, *then* open the camera, then
+read. Both mistakes produced a confident "the code never runs" verdict from a
+check that had not actually been performed — the same failure mode as §26.4's
+guessed symbol and §27.8's library mix-up.
+
+#### 31.5 A regression that blocks the next step
+
+§24 resolved vtables by reading `/proc/$(pidof mediaserver)/mem`, after getting
+the load bias from `/proc/$(pidof mediaserver)/maps`. **Neither is readable on
+this build.** `adb shell` runs as uid 2000 (`ro.debuggable=0` despite the
+userdebug display id) and `adb root` reports "root access is disabled by system
+setting". So:
+
+```
+$ adb shell 'grep libcam /proc/372/maps'
+grep: /proc/372/maps: Permission denied
+```
+
+§29's ADB change is correct as far as it goes, but it removed the capability the
+AF investigation depended on. Whatever root access is used going forward has to
+be a deliberate choice, not a side effect — a userdebug build with
+`ro.debuggable=1`, or a kernel with `CONFIG_ADB_ROOT=y` and the setting enabled
+in Developer options.
+
+#### 31.6 State
+
+No source change. The §23 fixes are live and doing their job; the motor's first
+ioctl is refused with `EPERM` by the driver, and that refusal is the open item.
 
 ## How to apply the out-of-tree fixes
 
