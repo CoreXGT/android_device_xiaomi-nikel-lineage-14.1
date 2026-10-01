@@ -2540,3 +2540,33 @@ lens-id patch), `/dev/MAINAF` 666, `MtkCam` 403 lines, `AFv2` 48 lines,
 
 MIUI blobs kept at `/mnt/System/ROM-nikel/work/miui_camera_blobs/`.
 `/tmp/opencode/hal_noflash.so` is the §27.1 redirect build (not for shipping).
+
+### 27.7 Every other local source of a tuning blob is exhausted
+
+Not a guess — each one was opened and checked.
+
+| source | Android | `libcameracustom.so` | S5K3L8 |
+|---|---|---|---|
+| fastboot images V10.2.1.0 nikel | 6.0/MRA58K | `7a2db01a` 20 795 700 B | 44 hits |
+| OTA `miui_HMNote4_V10.2.2.0` | 6.0/MRA58K | same file (identical ext4 UUID `da594c53…`) | same |
+| OTA `…9.3.21` hellas | 6.0/MRA58K | `system.new.dat` encrypted, header `ff5aff50 55ff5a00` | unreachable |
+| `madOS_7.1.2_apollo_lite` | 7.1 | `7928b6b0` 10 551 236 B, IMX258/S5K3P3SX/S5K5E2YA/S5K5E8YX | 0 |
+| `HP/RedN4` project blob | 7.1 build | `da44d012` 20 795 700 B, same 6.0-era lineage | 44, same scheme |
+| `cust.img` (MIUI, 518 MB raw) | — | `/cust` is two-letter language dirs (`ab`, `ad`, `ae`, …) plus `/app/customized` | no tuning |
+
+Two more dead ends worth recording so they are not retried:
+
+* The 10.2.2 `system.new.dat` reads as raw ext4 (superblock magic `53ef` at `0x438`,
+  same UUID as the fastboot image) but is **not** a contiguous image. Padding it
+  out to the superblock's 780 231 blocks gives `EXT2 directory corrupted`. It is
+  Xiaomi's own block-stream layout, not simg-diff.
+* `cust.img` is regionalisation and preinstalled apps, not per-device tuning.
+
+MIUI 9.3.21 is the same MIUI 10 with cosmetic changes and no camera difference,
+so it is not worth a TWRP install to pull one file from it.
+
+Net: **no blob of a matching generation exists on this machine.** Getting a real
+one means a stock MIUI for this device on Android 8.1/9, and extracting it
+offline costs nothing — the same `simg2img` + `debugfs` path as §26.1, no wipe, no
+fastboot, no LOS reinstall. Only then is the §27.1 eight-byte redirect worth
+replaying to see whether a matching-generation blob completes 3A init.
