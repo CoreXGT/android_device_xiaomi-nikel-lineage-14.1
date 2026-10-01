@@ -2031,3 +2031,82 @@ library that actually runs.
 * §22's "there are no direct `bl` call sites, a vtable-slot walk is required" is
   true but was used to justify stopping; with the 32-bit library the same scan
   does resolve `MCUDrv::lensSearch` -> `AfMgr::CCTMCUNameinit` via the ARM PLT.
+
+### 23.7 Follow-up: AF now runs a full search cycle and times out
+
+After the §23.3 patch and the §23.1 node permissions, the AF chain engages
+completely. `MtkCam/StreamingProcessor` reports a full state machine cycle per
+focus tap (three taps, one log):
+
+```
+[0:isAfCallback] AFstate(1 -> 3), msg(0), msgExt(0), AfCb(0)
+[0:isAfCallback] AFstate(3 -> 5), msg(4), msgExt(0), AfCb(1)      <- searching
+[0:isAfCallback] AFstate(5 -> 3), msg(0), msgExt(0), AfCb(0)      <- ~3.1 s later
+[0:isAfCallback] AFstate(3 -> 6), msg(2048), msgExt(0), AfCb(1)
+[0:isAfCallback] AFstate(6 -> 3), msg(0), msgExt(0), AfCb(0)      <- ~4.6 s later
+```
+
+So AF is no longer dead: it triggers, searches for about three seconds, and
+gives up. That is the signature of an AF that runs but cannot converge, not one
+that never starts — a completely different failure from §20/§22.
+
+Also confirmed present and healthy at the framework level:
+
+```
+afeng-max-focus-step: 1023        <- the AF engine knows the motor step range
+focus-mode: auto
+focus-distances: 0.95,1.9,Infinity
+```
+
+### 23.8 What the remaining blocker is, precisely
+
+Three independent checks all say the VCM motor is never commanded:
+
+| check | result |
+|---|---|
+| `dmesg \| grep -iE 'mainaf\|vcm\|lens\|motor\|gaf'` | empty — the VCM driver never logs anything |
+| HAL error strings (`invalid m_fdMCU`, `mcuIOC_*`, `please check kernel driver`) | never printed, so the ioctl path is not reached at all |
+| `debug.af_motor.position=1` (read by `lib3a.so`, `AfAlgo::isAFMotorStop`) | no motor-position log ever appears |
+
+The reason it is hard to see from the code is that every entry point into the
+lens driver is a virtual call through a vtable that is zero-filled in the file
+and only populated by the loader:
+
+* `MCUDrv::lensSearch` / `getCurrLensID` are reachable only because
+  `AfMgr::CCTMCUNameinit` calls them through the ARM PLT (§23.2).
+* `GAFLensDrv::init`, `LensDrv::init`, `LensSensorDrv::init`,
+  `GAFLensDrv::moveMCU`, `GAFLensDrv::setMCUInfPos` and `LensCustomInit` have
+  **zero** direct `bl` call sites in `.text` — all eight PLT stubs exist and all
+  eight are called virtually.
+* `_ZTVN6NS3Av35AfMgrE` and `_ZTV8AfMgrDev<...>` are zero in the file, and this
+  build's `.rel.dyn` (`ANDROID_REL`, 0x3b98 bytes at file 0x43ac4) does not
+  contain usable addends for that range, so the slot order cannot be recovered
+  statically. It *can* be read from the running process
+  (`/proc/$(pidof mediaserver)/mem` at `load_bias + 0xde890`,
+  `load_bias = 0xec918000` on this boot) — that is the next concrete step.
+
+### 23.9 Diagnostic worth keeping
+
+Patching the `cbz` at `0x65724` (`ThreadRawImp::enableAFThread`, guard before the
+failure log) to a `nop` makes the log unconditional and is a one-instruction way
+to tell "not called" from "called and failed":
+
+```
+E Hal3ARawImp/thread: [enableAFThread()] Err: 591:, [enableAFThread] result(0)
+```
+
+With the lens-id patch alone the AF thread **is** created (`AFthread`,
+`AFOBufThread_1`, `AAOBufThread_1` all appear in `/proc/$(pidof mediaserver)/task`),
+so the nop is diagnostic only and is *not* part of the shipped patch. An earlier
+sampling that showed no `AFthread` was a timing artifact — the thread is created
+lazily when AF is engaged and torn down when it is not.
+
+### 23.10 State of the working tree
+
+* `init.mt6797.rc` and the vendor preblob both carry the fixes, but the device is
+  still running the *old* `system.img`, so the node permissions on the phone
+  right now come from a manual `chmod 666 /dev/MAINAF /dev/SUBAF`. After a reboot
+  without a rebuild the AF chain will be back to "starts, finds no lens, AF off".
+* Correct order for verifying on hardware: build and flash, then check
+  `ls -la /dev/MAINAF` shows `crw-rw---- system camera` before blaming anything
+  else.
