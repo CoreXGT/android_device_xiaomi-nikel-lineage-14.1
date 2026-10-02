@@ -3097,9 +3097,13 @@ that the HAL error strings "`invalid m_fdMCU`, `mcuIOC_*`, `please check kernel
 driver`" were "never printed, so the ioctl path is not reached at all". The ioctl
 path is now reached, and the very first command is refused.
 
-`mcuIOC_T_SETPARA` is dispatched from `LensDrv::setMCUParam(1, 0)` — a distinct
-code path from `mcuIOC_T_SETMACROPOS`, which the binary also carries and which
-did not run.
+`mcuIOC_T_SETPARA` is reached from `LensDrv::setMCUParam(1, 0)`, but not
+directly: `setMCUParam` is a dispatcher that logs `a_CmdId`/`a_Param` and then
+switches on `a_CmdId`, and `cmdId 1` routes to `LensDrv::setMCUMacroPos`, which is
+the function that performs the ioctl and therefore the one whose name appears in
+the error string. So the "`[setMCUMacroPos]` in a `setMCUParam` line" oddity is
+**not** a copy-paste bug in the log string — the two names are simply two frames of
+one call chain. §32.5 gives the corrected command→function map.
 
 #### 31.3 The refusal is not SELinux
 
@@ -3112,8 +3116,17 @@ MTK VCM driver cannot be read yet.
 Note also that no `mcuIOC_S_SETDRVNAME` line appears before `setMCUParam`,
 although the HAL carries `Err: %5d:, [mcuIOC_S_SETDRVNAME] please check kernel
 driver`. That string not printing means either the call succeeded or it was never
-made; the two are not distinguishable from this log. Whether the driver name is
-registered before parameters are set is the first thing to determine next.
+made; the two are not distinguishable from this log.
+
+**Resolved by §32.4:** it is the former. `LensDrv::init` issues `SETDRVNAME` three
+times and every one returns `1`; the string is printed on failure only. The driver
+name is registered before parameters are set, and it is registered *correctly* —
+the driver accepts `"DW9714AF"` and rejects every other spelling with `EPERM`.
+
+**Also resolved by §32.7:** the `EPERM` itself is real but incidental. The driver
+has no `SETPARA` case at all (all `cmdId 0..7` return `EPERM`), so this particular
+call can never succeed on this kernel — but the AF failure has a different and much
+more serious cause, described next.
 
 #### 31.4 Two of this session's own mistakes, recorded so they are not repeated
 
@@ -3136,6 +3149,14 @@ guessed symbol and §27.8's library mix-up.
 
 #### 31.5 A regression that blocks the next step
 
+> **Superseded — see §32.1.** The capability this section lost is back: on the
+> current build `adbd` runs as `uid=0(root)`, context `u:r:su:s0`, and `adb root`
+> answers *"adbd is already running as root"*. `ro.debuggable=1` is in fact set.
+> The premise "no root" in this section is wrong for this build, and §32 was
+> obtained with root. The `ro.debuggable=0` reading is the part that was mistaken.
+> `/proc/kcore` and `/dev/mem` are still absent, and `i2c-dev` is not built in, so
+> some routes remain closed even as root (§32.9).
+
 §24 resolved vtables by reading `/proc/$(pidof mediaserver)/mem`, after getting
 the load bias from `/proc/$(pidof mediaserver)/maps`. **Neither is readable on
 this build.** `adb shell` runs as uid 2000 (`ro.debuggable=0` despite the
@@ -3155,8 +3176,262 @@ in Developer options.
 
 #### 31.6 State
 
-No source change. The §23 fixes are live and doing their job; the motor's first
-ioctl is refused with `EPERM` by the driver, and that refusal is the open item.
+Superseded by §32. Summary: no source change, the §23 fixes are live and doing
+their job, and the open item is no longer "the first ioctl is refused". The
+refusal is real but incidental; AF is broken because of a kernel/wiring defect
+that no §23 fix addresses.
+
+## 32. AF root cause: the kernel drives the AF VCM at the wrong i2c address
+
+**Status: root cause found and proven with runtime evidence. No fix applied yet.**
+AF on this build does not work at all: the lens never moves and the preview never
+sharpens. The cause is in the kernel's AF/VCM driver, not in the HAL, not in
+§23's patches, and not in anything this port changed.
+
+#### 32.1 Access and method
+
+`adb` runs as **root** on this build (see §31.5's supersession note). That made
+three things possible that were not before:
+
+* `mount -t debugfs none /sys/kernel/debug`, giving ftrace and the
+  `events/i2c/{i2c_write,i2c_read,i2c_reply,i2c_result}` tracepoints. These carry
+  an `addr` field, so i2c traffic can be attributed to a specific device and
+  filtered with `echo 'adapter_nr == 2' > events/i2c/i2c_write/filter`.
+* Writing small static ARM probes that open `/dev/MAINAF` and issue the ioctls
+  directly, so the kernel driver can be interrogated without the camera stack.
+* Reading `/proc/kallsyms`, which yields `MAINAF_of_match` and `MAINAF_i2C_init`.
+
+Still unavailable even as root: `/proc/kcore`, `/dev/mem`, and `i2c-dev`
+(not in `/proc/misc`), so kernel memory cannot be read or dumped directly and
+`/dev/i2c-2` cannot be created.
+
+#### 32.2 A clean capture, and what it shows
+
+Getting a *true* clean capture needed two corrections to §31.4's procedure; see
+§32.10. With those applied, opening the camera produces the complete AF init:
+
+```
+D LensMCU : LensMCU[idx]2 [CurrSensorId]0x3103,[CurrLensIdx]0x0002
+D LensDrv : main lens init() [m_userCnt]0  +
+D LensDrv : [main Lens Driver]DW9714AF
+D LensDrv : main lens init() [m_userCnt]1 [fdMCU_main]344 -
+D LensDrv : setMCUParam() - a_CmdId = 1
+D LensDrv : setMCUParam() - a_Param = 0
+E LensDrv : Err:   627:, [setMCUMacroPos] ioctl - mcuIOC_T_SETPARA, error Operation not permitted
+D AfAlgo  : [AfAlgo0][Cmd_triggerAF][Mode]1
+D AfAlgo  : [AfAlgo][Cmd_triggerAF] AtMode AFS, isafstrig 1
+I MtkCam/StreamingProcessor: [0:isAfCallback] AFstate(1 -> 5), msg(4)
+D AfAlgo  : [DAF] DafFrame trigger target assist move fail, mode 0, en 0, afs 1
+V CAM_PhotoModule: mAutoFocusTime = 371ms
+I MtkCam/StreamingProcessor: [0:isAfCallback] AFstate(5 -> 3), msg(0)
+```
+
+`[m_userCnt]0 → 1` confirms this is a genuinely fresh lens session, not a reused
+one — so §31.1/§31.2's conclusions hold on this build too. Note also that the
+**AF algorithm is loaded and runs**; NVRAM parameters are dumped in full and
+`Cmd_triggerAF` arrives with `isafstrig 1`.
+
+#### 32.3 The AF thread really does command the lens
+
+`[DAF] … target assist move fail` reads like the algorithm bailing out before any
+motor command, and the 371 ms autofocus time is far too short for any real
+contrast search. That would put the fault in userspace. **It does not.** Tracing
+i2c bus 2 across a normal camera open shows the AF thread itself issuing DW9714
+writes:
+
+```
+Binder:4500_3-32011 [008] ... i2c_write: i2c-2 #0 a=00e f=0000 l=2 [02-02]
+Binder:4500_3-32011 [008] ... i2c_write: i2c-2 #0 a=00e f=0000 l=2 [06-a1]
+Binder:4500_3-32011 [006] ... i2c_write: i2c-2 #0 a=00e f=0000 l=2 [07-25]
+AFthread-32029  [007] ... i2c_write: i2c-2 #0 a=00e f=0000 l=1 [03]
+AFthread-32029  [005] ... i2c_write: i2c-2 #0 a=00e f=0000 l=1 [04]
+AFthread-32029  [005] ... i2c_write: i2c-2 #0 a=00e f=0000 l=3 [03-03-ff]
+AFthread-32029  [007] ... i2c_write: i2c-2 #0 a=00e f=0000 l=3 [03-00-fa]
+AFthread-32029  [007] ... i2c_write: i2c-2 #0 a=00e f=0000 l=3 [03-00-c8]
+AFthread-32029  [007] ... i2c_write: i2c-2 #0 a=00e f=0000 l=3 [03-00-96]
+...                                                        (a full focus ramp)
+```
+
+`[02 02] [06 a1] [07 25]` is the DW9714 init sequence; `[03-03-ff]` is register
+0x03 loaded with `0x03FF` = 1023 (the maximum position); the rest is the
+characteristic focusing ramp 250 → 200 → 150 → 100 → 50 → 30 → 10 → 350 → 300.
+The AF stack is issuing correct, well-formed DW9714 commands.
+
+#### 32.4 Every VCM transfer is refused by the bus
+
+Every one of those writes fails:
+
+```
+i2c_result: i2c-2 n=0 ret=-121
+```
+
+`-121` is `EREMOTEIO`: the addressed device did not acknowledge. Over a full
+camera open, bus 2 shows `511` successful transfers and exactly `6` failures, and
+all 6 failures are these VCM writes.
+
+The lens is therefore never told to move, once, ever.
+
+#### 32.5 The driver hides the failure
+
+`LensDrv::moveMCU()` returns success, so userspace cannot notice:
+
+```c
+    b8aa2:  ldr  r1, [pc, #52]    ; 0x40044101  (mcuIOC_T_MOVETO)
+    b8aa4:  mov  r2, r4          ; target position, passed by value
+    b8aa6:  blx  5ad2c <ioctl@plt>
+    b8aaa:  subs r4, r0, #0
+    b8aac:  bge  b8a88           ; ret >= 0 -> "success", silently
+```
+
+Probes confirm the same from outside: `MOVETO` returns `0` for every target in
+range, while `curpos` never changes. The driver's `mcuMotorInfo` layout, mapped
+by probing `SETINFPOS`/`SETMACROPOS`, is `[0]=curpos [4]=macro [8]=inf`, and
+`curpos` is `0` before and after every command.
+
+This also closes §31.3's open question and corrects one assumption: the failure is
+**not** `EPERM`. A freshly bound session returns `GET ret=0` with real data
+(`0 4131 0 65793 …`, where `4131 = 0x1023` is the maximum step), and
+`SETDRVNAME("DW9714AF")` returns `1`. The driver is alive and serving ioctls.
+
+For completeness, the command → function → constant map, measured rather than
+inferred from nearest symbols:
+
+| Function | Command | Constant |
+| :--- | :--- | :--- |
+| `LensDrv::moveMCU` | MOVETO | `0x40044101` |
+| `LensDrv::setMCUInfPos` | SETINFPOS | `0x40044102` |
+| `LensDrv::setMCUMacroPos` | SETPARA | `0x40084105` |
+| `LensDrv::setMCUParam` | GET | `0x80104100` |
+| `LensDrv::getMCUCalPos` | GET-CAL | `0x80084104` |
+| `LensDrv::init` | SETDRVNAME ×3 | `0x4020410a` |
+
+Note `MOVETO` validates the target against the `[macro, inf]` window and returns
+`EINVAL` outside it; with the HAL-bound defaults `MOVETO(512)` is refused while
+`MOVETO(1023)` is accepted. `LensDrv::moveMCU` only checks `pos >= 0`, so an
+out-of-window AF target would be silently lost by the HAL too — worth keeping in
+mind for any future userspace workaround.
+
+#### 32.6 The address mismatch
+
+The writes go to **`a=00e`**. nikel's VCM is not at `0x0e`:
+
+```
+/sys/bus/i2c/devices/2-0072      ->  driver: ../../../../../bus/i2c/drivers/MAINAF
+DT: /soc/i2c@11013000/camera_main_af@72   compatible = "mediatek,camera_main_af"
+```
+
+and a listing of every i2c client on every adapter contains **no client at `0x0e`
+anywhere**. `0x72` is never addressed at all, in any probe or in a normal camera
+open.
+
+The address is not configuration we can influence: it is not in the DT node (that
+carries only `name`, `reg`, `status`), and it is not in the 20-byte blob
+`SETDRVNAME` takes. Probing every byte of that blob changes nothing — byte 9 is
+the name's NUL terminator and bytes 10–19 are ignored. `MOVETO` address used stays
+`0x0e` in every case.
+
+So the kernel driver has the VCM address hardcoded, and it is wrong for this
+hardware. The same driver's blind spot is visible elsewhere: the image sensor is
+addressed at `0x2d`/`0x58` while the DT declares `camera_main@36`, and the sensor
+that actually works is the one the kernel table points at — the same
+"kernel table ≠ device tree" mismatch that forced the `kdSensorList` `e3↔e6` swap
+of §P2, now showing up in the AF path where nobody has looked.
+
+#### 32.7 This is not a regression introduced by this port
+
+Two independent checks, both negative:
+
+* **Kernel diff.** The running kernel (`bd54` + `e3↔e6` swap) and the stock
+  MIUI-M kernel (`bd19`) both decompress to exactly 19 726 336 bytes and differ
+  in **187 bytes**: the version banner (4 runs around `0xb2a0xx`), `0xffb040`
+  (20 B), `0x1075448` (105 B), `0x10a683e` (19 B), and `0x115a420`/`0x115a4b0`
+  (43 B each — the `kdSensorList` swap, entries 3 and 6 at stride `0x30` from
+  `0x115a390`). **Nothing AF-related.** The AF driver code is byte-identical
+  between the two, so `bd19` addresses the VCM at `0x0e` too.
+* **DTB diff.** The device tree blobs in our `boot.img` and in `miui_boot.img`
+  are both 131 649 bytes and are **byte-identical** (zero differing bytes). The
+  `camera_main_af@72` declaration is stock, and the `MAINAF` driver is genuinely
+  bound to that `0x72` client.
+
+Combined with §31.1, this means AF is broken in the *stock* kernel/DT pairing as
+well. Either MIUI's own ROM had the same defect, or this DT/kernel pair never
+correctly addressed nikel's VCM.
+
+#### 32.8 What this rules out
+
+* **Not §23's patches.** `CurrLensIdx 2`, `LensId 0x9714`, `AF_FLAG` open — all
+  confirmed live in §32.2. The lens table resolves correctly.
+* **Not the `EPERM`.** `SETPARA` genuinely has no case in this driver (`cmdId`
+  `0..7` all return `EPERM`), so §31.3's observation stands — but it is a side
+  issue. AF fails identically whether or not that call succeeds.
+* **Not kernel state residue.** A "poison the bounds, reopen, read back" probe
+  shows `GET` returning all-zero until `SETDRVNAME` binds the session, and never
+  reflecting writes even when they succeed. The earlier suspicion that a leftover
+  `SETMACROPOS(0xffffffff)` could break AF was never measured and is unsupported.
+* **Not the front camera.** The active device is `0` = `BACK`; a front-camera
+  session has no AF actuator at all.
+* **Not `main lens uninit`.** That string is the normal camera-close teardown:
+  `[m_userCnt]1 [fdMCU_main]344` → `[]-1`, logged in the same second as
+  `dumpsys media.camera`'s `DISCONNECT`. `CamPwrOffState` is the only dispatcher
+  that reaches lens uninit, and `AfMgr::Stop` never does.
+
+#### 32.9 The fix has to be in the kernel, and what it is
+
+The VCM must be addressed at `0x72`. There is no userspace route to that:
+
+* no `i2c-dev`, so `/dev/i2c-2` cannot be created and the VCM cannot be driven
+  directly, even as root;
+* no `/proc/kcore` or `/dev/mem`, and the kernel has no modules and no eBPF, so
+  the address cannot be corrected at runtime;
+* the address is not carried in any property the HAL controls.
+
+So the fix is a **binary patch of the kernel prebuilt**, changing the AF driver's
+hardcoded VCM address from `0x0e` to `0x72` — the same technique already used for
+the `kdSensorList` swap, and in the same file
+(`device/xiaomi/nikel/prebuilt/kernel`).
+
+That patch is **not yet written**, and locating the constant is the remaining
+work. It is not a blind byte search: the DW9714 init values are compiled as
+instruction immediates rather than a data table, and this Image has no working
+`vaddr`↔file mapping yet. The route is to parse the kernel's embedded kallsyms
+(available, since the binary carries its own symbol table) to recover the mapping,
+then disassemble `MAINAF_i2C_init` and the `moveAF` path. Two caveats to settle
+during that work:
+
+* **`0x72` is inferred from the DT, not measured.** No probe has yet proven that
+  a device acknowledges at `0x72` — nothing on this system ever addresses it, and
+  without `i2c-dev` there is no way to test. If the patched driver still NAKs,
+  the VCM is somewhere else entirely and the DT's `reg` is simply wrong too.
+* **The degenerate `[macro, inf]` window** (§32.5) may be a second, independent
+  defect in the same table, and should be checked at the same time.
+
+#### 32.10 Methodological notes
+
+Two more measurement traps, in the same family as §31.4:
+
+1. **`am force-stop` does not close the camera session.** It kills the app, but
+   `mediaserver` keeps the device and the AF manager stays initialised. A
+   force-stop → `logcat -c` → "open the camera" sequence therefore captures a
+   *reused* session whose init lines were emitted long before the clear. This
+   produced a false "AF init never runs" verdict. Close the camera through the
+   UI, and confirm via `dumpsys media.camera` that a fresh `CONNECT` appears
+   *after* the clear.
+2. **logd's `chatty` suppression silently deletes whole uids.** The MTK AE/AWB
+   algorithms emit ~1500 lines/minute from uid `media`, which trips the
+   rate limiter; the resulting `chatty: uid=1013(media) … expire 697 lines`
+   records discard that uid's other output too, including AF lines. On this
+   build the symptom was "zero AF lines in the whole buffer" while the buffer
+   still held 1111 lines from `mediaserver`. Suppressing the flood at the source
+   fixes it without touching anything else:
+   `adb shell setprop log.tag.AeAlgo W` (and the same for `awb_algo`,
+   `LuxLevels`, `aaa_hal_sttCtrl`, `aaa_state_mgr`, `aao_buf_mgr`, `afo_buf_mgr`,
+   `path_cam`, `pd_mgr`, `Malog`, `SeninfDrvImp`). `logcat -G 32M` enlarges the
+   buffer but does **not** prevent this.
+3. `/dev/MAINAF` is **single-open**: probing it while the camera is up returns
+   `EBUSY`. The camera must be closed for any ioctl experiment, which also means
+   the movement of the lens cannot be observed through the viewfinder during such
+   a probe — hence the i2c trace as the substitute observation.
+
 
 ## How to apply the out-of-tree fixes
 
