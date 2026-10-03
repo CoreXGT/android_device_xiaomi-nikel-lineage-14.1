@@ -99,13 +99,10 @@ static int irtx_hal_log_enabled()
 static int lg_tv_power_test()
 {
     int total_time = 0; // micro-seconds
-    long i,j;
+    long i;
     int fd, buffer_len;
     int ret = 0;
-    unsigned int *wave_buffer;
-    int int_ptr = 0;
-    int bit_ptr = 0;
-    char current_level = 1; // start with high level
+    unsigned int *wave_buffer = NULL;
     int carrier_freq = LG_TEST_FREQ;
 
     int p_len = sizeof(data_debug) / sizeof(data_debug[0]);
@@ -147,24 +144,19 @@ static int lg_tv_power_test()
         goto exit;
     }
     
-    buffer_len = ceil(total_time/(float)32); // number of integers, one bit for one micro-seconds
-    wave_buffer = malloc(buffer_len * 4); // number of bytes
+    buffer_len = p_len;   // one u32 per pattern element (duration in us)
+    wave_buffer = malloc(buffer_len * 4);
+    if (!wave_buffer) {
+        ALOGE("malloc(%d) fail\n", buffer_len * 4);
+        return -1;
+    }
     ALOGD("U32 number=%d\n", buffer_len);
 
     memset(wave_buffer, 0, buffer_len * 4);\
     for (i = 0; i < p_len; i++) {
-        for(j=0; j<data_debug[i]; j++) {
-            if(current_level)
-                *(wave_buffer+int_ptr) |= (1<<bit_ptr);
-            else
-                *(wave_buffer+int_ptr) &= ~(1<<bit_ptr);
-            bit_ptr++;
-            if(bit_ptr==32) {
-                bit_ptr = 0;
-                int_ptr++;
-            }
-        }
-        current_level = !current_level;    
+        /* Same duration-per-u32 encoding as consumerir_transmit - the driver
+         * does not understand a 1-bit-per-microsecond bitmask. */
+        wave_buffer[i] = (unsigned int)data_debug[i];
     }
     ret = write(fd, (char *)wave_buffer, buffer_len * 4);
 
@@ -186,8 +178,12 @@ static int lg_tv_power_test()
     }
     // out put log for debug: end
 
-    if(ret < 0) {
-        ALOGE("file write fail, errno=%d\n", errno);
+    /* Require the full byte count; the driver reports a rejected buffer by
+     * returning 0 rather than a negative errno. */
+    if (ret != buffer_len * 4) {
+        ALOGE("file write short: ret=%d expected=%d errno=%d\n",
+              ret, buffer_len * 4, errno);
+        ret = -1;
         goto exit;
     } else {
         ALOGD("data is delivered to kernel, sleep now\n");
@@ -197,8 +193,9 @@ static int lg_tv_power_test()
 exit:
     ALOGD("done, turn off IrTx\n");
     close(fd);
+    free(wave_buffer);
 
-    return 0;
+    return ret;
 }
 
 
@@ -206,13 +203,10 @@ static int consumerir_transmit(struct consumerir_device *dev __unused,
    int carrier_freq, const int pattern[], int pattern_len)
 {
     int total_time = 0; // micro-seconds
-    long i,j;
+    long i;
     int fd, buffer_len;
     int ret = 0;
     unsigned int *wave_buffer = NULL;
-    int int_ptr = 0;
-    int bit_ptr = 0;
-    char current_level = 1; // start with high level
 
     if (!irtx_hal_power_test_enabled()) {
         for (i = 0; i < pattern_len; i++)
@@ -250,25 +244,31 @@ static int consumerir_transmit(struct consumerir_device *dev __unused,
             goto exit;
         }
         
-        buffer_len = ceil(total_time/(float)32); // number of integers, one bit for one micro-seconds
-        wave_buffer = malloc(buffer_len * 4); // number of bytes
+        /* The mt_irtx driver in this kernel (3.18.22, kern_bd54) does NOT read a
+         * 1-bit-per-microsecond bitmask. It reads one duration per u32 element,
+         * alternating mark/space, and synthesises the carrier itself.
+         *
+         * Verified with a native prober against /dev/irtx on nikel:
+         *   bitmask, 1 bit/us   -> write() returns 0   (driver rejects buffer)
+         *   duration per u32    -> write() returns count (driver transmits,
+         *                          and blocks for the waveform duration)
+         *
+         * The old bitmask path made the driver compute garbage
+         * (zly4 total_time=-809311486) and log
+         * (zly5_error rel_buffer_num>=num is error), so nothing was emitted.
+         *
+         * See BUGFIXES.md section 30 for the full investigation. */
+        buffer_len = pattern_len;            // one u32 per pattern element
+        wave_buffer = malloc(buffer_len * 4);
+        if (!wave_buffer) {
+            ALOGE("malloc(%d) fail\n", buffer_len * 4);
+            goto exit;
+        }
         ALOGD("U32 number=%d\n", buffer_len);
 
-        memset(wave_buffer, 0, buffer_len * 4);
-        for (i = 0; i < pattern_len; i++) {
-            for(j=0; j<pattern[i]; j++) {
-                if(current_level)
-                    *(wave_buffer+int_ptr) |= (1<<bit_ptr);
-                else
-                    *(wave_buffer+int_ptr) &= ~(1<<bit_ptr);
-                bit_ptr++;
-                if(bit_ptr==32) {
-                    bit_ptr = 0;
-                    int_ptr++;
-                }
-            }
-            current_level = !current_level;    
-        }
+        for (i = 0; i < pattern_len; i++)
+            wave_buffer[i] = (unsigned int)pattern[i];
+
         ret = write(fd, (char *)wave_buffer, buffer_len * 4);
         ALOGD("converted len:%d, data:\n", buffer_len);
 
@@ -287,9 +287,15 @@ static int consumerir_transmit(struct consumerir_device *dev __unused,
             ALOGD("==\n");
         }
         // out put log for debug: end
-        
-        if(ret < 0) {
-            ALOGE("file write fail, errno=%d\n", errno);
+
+        /* A short write means the driver rejected the buffer. The driver
+         * returns 0 (not a negative errno) when it cannot parse the
+         * waveform, so testing only `ret < 0` reported success while
+         * nothing was emitted. Require the full byte count instead. */
+        if (ret != buffer_len * 4) {
+            ALOGE("file write short: ret=%d expected=%d errno=%d\n",
+                  ret, buffer_len * 4, errno);
+            ret = -1;
             goto exit;
         } else {
             ALOGD("data is delivered to kernel, sleep now\n");
