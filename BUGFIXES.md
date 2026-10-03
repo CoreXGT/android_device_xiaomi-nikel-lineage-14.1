@@ -44,7 +44,7 @@ Bug diagnostics use these code paths repeatedly:
 | 25 | VCM open proven; gdb Thumb dead end | ✅ documented | §25 |
 | 26 | Camera tuning blob is for the wrong sensor | 🔍 root cause | §26, §27 |
 | 27 | Load blocker is one symbol; blob is IMX258's | 🔍 root cause, **§27.8's dead-end evidence voided — see §30** | §27, §30 |
-| 28 | **IR remote: HAL never enabled** | ✅ FIXED (not verified on hardware) | §28 |
+| 28 | **IR remote: HAL never enabled** | 🔧 **FIXED** — wrong buffer encoding in the HAL | §28, §33 |
 | 29 | **ADB ran as root → scrcpy clipboard dead** | ✅ FIXED (needs a `user` build) | §29 |
 | 30 | **Audit of §0/§13/§23/§27 against the tree** | 🔍 2 corrections, 1 voided dead-end | §30 |
 | 31 | **Live re-check of the AF chain** | 🔍 §23 fixes confirmed; `EPERM` on the first VCM ioctl | §31 |
@@ -522,7 +522,8 @@ same lamp). Findings, so nobody repeats the work:
   (`make SystemUI`, picks up the patched cmsdk) and flash the new
   SystemUI.apk via TWRP.
 
-### 10b. Fingerprint scanner (Goodix + Kinibi TEE) — FIXED (2026-09-14)
+### 10b. Fingerprint scanner (Goodix + Kinibi TEE) — FIXED (2026-09-14,
+template-persistence fix 2026-10-03, see #10b-f)
 
 - **Status: WORKING.** Enrollment, unlock and screen-off wake-up verified on
   the integrated build. The full stack ships in the ROM: Kinibi TEE runtime
@@ -533,7 +534,12 @@ same lamp). Findings, so nobody repeats the work:
   Goodix trustlet and the AOSP gatekeeper trustlet), and the TEE gatekeeper
   HAL (`gatekeeper.mt6797.so` = `libMcGatekeeper.so`, 64+32 — required, see
   #10b-c). The kernel bd54 prebuilt's Goodix driver loads `gf_ta.axf` into
-  the TEE at probe.
+  the TEE at probe. Note (2026-10-03): `mcDriverDaemon` in the vendor tree
+  is a same-length binary patch (md5 `6edae50d…`) that moves the TA's
+  template storage from `/data/app/mcRegistry` to
+  `/data/misc/mcregistr`, because PackageManagerService deletes every
+  non-APK directory under `/data/app` at every boot — without that patch
+  enroll worked but unlock never matched (#10b-f).
 
 - **Sensor identity — FINAL (2026-09-14, corrected):** the device sensor is a
   **GOODIX on SPI0** (`soc/spi@1100a000/goodix-fp@1`), NOT the FPC1145. Proof:
@@ -596,6 +602,14 @@ same lamp). Findings, so nobody repeats the work:
   and not an artifact of the hacked test environment.
 
 ### 10b-d. Fingerprint verified end-to-end (2026-09-14)
+
+> **SUPERSEDED by §10b-f (2026-10-03).** The "end-to-end" claim below could
+> not have been true in the persistent sense: the Goodix TA's template
+> storage directory (`/data/app/mcRegistry`) was being deleted by
+> PackageManagerService at every boot even on this date, so stored templates
+> could never survive a reboot. What was observed here was at best an
+> in-session match against RAM-resident templates. The real verification —
+> including across reboots — is in §10b-f.
 
 - After vendor `0e5ea60` (TEE gatekeeper HAL) and a fresh flash: PIN setup
   works (TEE gatekeeper), enrollment completes, unlock works. The MIUI-era
@@ -910,6 +924,13 @@ ioctl(fd, IRTX_IOC_SET_CARRIER_FREQ, &carrier_freq);
 write(fd, (char *)wave_buffer, buffer_len * 4);
 ```
 
+> **RETRACTED — see §33.** The bitmask conversion above does *not* match the
+> driver that actually runs on this device. It was written against
+> `drivers/misc/mediatek/irtx/mt6797/mt_irtx.c` in `kernel_apollo_n`, which is
+> **not** the driver that ships in the ROM's `boot.img`. The running driver
+> expects one duration per `u32`, and the `1`-per-microsecond bitmask made it
+> reject every buffer (`write()` returned 0).
+
 This matches the driver exactly and explains its otherwise odd constant:
 `PWM_MODE_MEMORY_REGS.HDURATION = 25` at a 26 MHz clock is 0.96 µs, i.e. one
 microsecond per bit. Its `IRTX_IOC_SET_CARRIER_FREQ` is `_IOW('R', 0, unsigned
@@ -969,14 +990,70 @@ which is allowed, because this ROM runs SELinux permissive — consistently with
 (-2802 lines, see the tree-wide diff). Not worth an sepolicy edit right before a
 build for a denial that changes nothing.
 
-#### 28.8 Not verified on hardware
+#### 28.8 Software chain verified — but the conclusion was WRONG
 
-The device-side check could not run: `/dev/irtx` is `0660 system:system`, the adb
-shell is `uid=2000(shell)`, there is no `su`, and `adb root` is refused. Running
-MIUI's own `/bin/consumerird` from adb therefore failed at `open()` and produced
-no driver log — a misleading result, since the real HAL runs as `system`. The
-protocol itself is confirmed from source on both sides; what still needs hardware
-is whether a transmitter LED is physically present.
+> **RETRACTED — see §33.** Everything in this subsection about "the driver drives
+> it correctly" and "this board has no working IR emitter" is wrong. The driver
+> was rejecting every buffer and returning 0, which the HAL's `ret < 0` check
+> treated as success. The emitter exists; the encoding was wrong. A native prober
+> proved the driver accepts and transmits a duration-encoded buffer.
+
+Everything up to the driver appears to work on the device, with logs:
+
+```
+D ConsumerIrHal: transmit for 108000 uS at 38200 Hz
+D ConsumerIrHal: pattern_len:68, pattern[]:
+D ConsumerIrHal: U32 number=3375
+D ConsumerIrHal: converted len:3375, data:
+D ConsumerIrHal: data is delivered to kernel, sleep now
+D ConsumerIrHal: done, turn off IrTx
+```
+
+Tag `ConsumerIrHal` is pid 812 (`system_server`), tid 3098 — so the call goes
+`ConsumerIrManager.transmit()` → JNI → HAL → `/dev/irtx`, not app → driver. No
+`ALOGE` anywhere, so `open()`, `ioctl(SET_CARRIER_FREQ)`, `write()` and `close()`
+all "succeeded".
+
+The apparent confirmation of the encoding derived from the driver in §28.4:
+
+```
+pattern total            108 000 µs
+buffer   ceil(108000/32) = 3375 u32 = 13 500 bytes
+driver sleep count × 8 µs = 13 500 × 8 = 108 000 µs      ← looked identical
+carrier                  38.2 kHz                          ← the driver default
+```
+
+That arithmetic is self-consistent but proves nothing: the numbers were derived
+from the same wrong assumption. `write()` had in fact returned **0**, and 0 is
+not `< 0`.
+
+**Nothing was emitted.** Tested against a real Daikin air conditioner with a
+Daikin remote app: no response on nikel.
+
+The IRTX interrupt line (`200: … GICv3 200 IRTX`) stays at 0, and that turned
+out to be *uninformative in both directions*: it is also 0 on MIUI while the same
+code drives the same AC successfully. Do not use it as a success/failure signal.
+
+The earlier claim that the GPIO state could not be read was also wrong — it was
+only true before `adb root` was enabled in Developer Options and
+`/sys/kernel/debug` was mounted.
+
+#### 28.9 One measuring method ruled out
+
+Pointing a phone camera at the emitter and looking for flashes does not work:
+topaz, whose IR demonstrably functions, is equally invisible. IR-cut filters
+block near-IR on both. Do not read "no flashes" as "no transmitter".
+
+#### 28.10 What this means for the change
+
+The fix is still correct and worth keeping:
+
+* Before it, the app hid the IR UI entirely and nothing could be transmitted.
+* After it, the full stack is live — flag, HAL, `hasIrEmitter()`, transmit
+  path — and IR still did not work, but for a fixable reason (§33).
+
+The cosmetic downside noted here no longer applies: the missing light was not a
+hardware property, it was the wrong buffer encoding, now fixed in §33.
 
 ### 29. ADB ran as root, which silently killed scrcpy's clipboard (2026-10-01)
 
@@ -1783,6 +1860,105 @@ MD3 partition (mmcblk0p15) was re-flashed from the true stock
 content (cadc0922) was an experimental-era image, not stock. Note that the
 crash reproduces with **both** images and with the official V10.2.1.0
 firmware, so the modem image is not the differentiator either.
+
+---
+
+### 10b-f. Enroll works, unlock never matches — PackageManagerService deletes
+the Goodix TA's template storage every boot (2026-10-03)
+
+- **Symptom:** enrollment completes cleanly (remaining-templates counter runs
+  5→0, zero TEE errors), but unlock never succeeds — not even in the same
+  boot session, with the same finger. The settings menu shows the enrolled
+  finger, the sensor fires IRQs, the HAL runs the match, and the result is
+  always `match_score = 0` with "not recognized" feedback.
+- **The "TEE errors" were never errors.** Every failed authenticate logged
+  `TeeGpClient: *** ERROR: _TEEC_UnwindOperation (00000429)` followed by
+  `(000003ee)`, which looked like a broken TEE call. It is not:
+  `gf_ta.axf` is a plain ELF32-ARM with full DWARF, and the `gf_error` enum
+  extracted from `.debug_info` gives `0x429 = 1065 =
+  GF_ERROR_MATCH_FAIL_AND_RETRY` and `0x3ee = 1006 = GF_ERROR_NOT_MATCH`.
+  The TA was honestly reporting "no enrolled template matched". The TEE
+  stack (mcDriverDaemon, the gf_ta session, TEE gatekeeper) was healthy
+  throughout — earlier sections' TEE-infrastructure suspicion was wrong.
+- **Root cause.** The Goodix TA stores fingerprint templates through Kinibi
+  secure storage (`gf_tee_storage` secure objects), brokered to the
+  filesystem by `mcDriverDaemon`. Its paths are compile-time constants in
+  the daemon binary: `/data/app/mcRegistry/00000000.rootcont` and
+  `/data/app/mcRegistry/TbStorage/<TA-uuid>/…`. But `/data/app` is the
+  package-install directory: `PackageManagerService.reconcileApps()`
+  (called from `systemReady()` for the internal storage) lists every entry,
+  treats any directory that does not parse as an APK as garbage, and deletes
+  it with `removeCodePathLI()`. Every single boot logged:
+
+  ```
+  W PackageManager: Failed to parse /data/app/mcRegistry: Missing base APK in /data/app/mcRegistry
+  W PackageManager: Destroying /data/app/mcRegistry due to: android.content.pm.PackageParser$PackageParserException: Missing base APK in /data/app/mcRegistry
+  ```
+
+  `init` created the directory at `post-fs-data`; PackageManager deleted it
+  ~1 minute later at systemReady — long before the user could ever enroll.
+- **Why enroll "succeeded" but never stuck.** With the storage directory
+  gone, the enroll-time template save lands nowhere (verified empty:
+  `/data/gf_data`, `/data/fpc`, `/data/fpsensor`; `/data/app/mcRegistry`
+  absent), and the failure also poisons the in-session template state, so
+  unlock fails immediately after enroll — not only after a reboot. Proof by
+  A/B on the same build, same finger, same boot session: create
+  `/data/app/mcRegistry` by hand after boot → enroll → unlock works; no
+  directory → enroll → unlock fails with 1006/1065 every time.
+- **Dead end recorded:** `mcDriverDaemon` accepts an undocumented `-p`
+  (usage line `[-mdsbhp]`). `-p /data/misc/mcRegistry` did NOT redirect the
+  TA storage — the `TbStorage`/`rootcont` paths are full-string constants
+  copied with fixed lengths (30/38 bytes) into buffers, so no CLI flag can
+  move them — and it actively broke the storage subsystem (enroll then
+  wrote files to *neither* location). Reverted.
+- **Fix: same-length binary patch of `mcDriverDaemon`** (731880 B,
+  t-base-Mediatek-Armv8-Android-302C-V006, md5
+  `7fdf07695b014dc220d5a898b904dc7a` →
+  `6edae50da38e9d9e745619a7adfc848a`). `/data/app/` (10 chars) cannot become
+  `/data/misc/` (11) in place, so the registry directory name was shortened
+  by one character to keep every replacement byte-identical in length:
+
+  | constant in the binary | patched to | len |
+  |---|---|---|
+  | `/data/app/mcRegistry` | `/data/misc/mcregistr` | 20 |
+  | `/data/app/mcRegistry/` | `/data/misc/mcregistr/` | 21 |
+  | `…/mcRegistry/TbStorage` | `…/mcregistr/TbStorage` | 30 |
+  | `…/mcRegistry/00000000.rootcont` | `…/mcregistr/00000000.rootcont` | 38 |
+
+  Each string occurs exactly once in the binary. objdump of the patched
+  binary differs from the original only in the four `.rodata` strings (the
+  code disassembly is byte-identical). `/data/misc` is never scanned by
+  PackageManager, so the storage now survives every boot.
+  `init.nikel-fp.rc` was changed accordingly: `mkdir
+  /data/misc/mcregistr` + `mkdir /data/misc/mcregistr/TbStorage` (0775
+  system system) at `post-fs-data`; the daemon service line is unchanged
+  (`-p` removed).
+- **Verification (2026-10-03, on-device):**
+  1. enroll writes four secure-object files under
+     `/data/misc/mcregistr/TbStorage/05060000000000000000000000000000/`
+     (59863, 38320, 194, 59863 bytes);
+  2. unlock succeeds in the same boot session;
+  3. after a full reboot, unlock succeeds **without re-enrolling** — the TA
+     loads the stored templates at init from the new path;
+  4. PackageManager logs contain no `mcRegistry`/`mcregistr` lines at all.
+- **Debugging traps worth remembering:**
+  - Killing/restarting `mcDriverDaemon` or `goodixfingerprintd` manually
+    permanently breaks the Goodix netlink channel for that boot: the kernel
+    logs `[gf] [gf_netlink_send] : send done, data length is -111`
+    (ECONNREFUSED — no listener), touches produce no HAL activity at all,
+    and only a reboot restores it. Never restart the TEE stack manually;
+    reboot instead.
+  - When touches produce no reaction, check the interrupt counter first:
+    `grep goodix /proc/interrupts` (`goodix_fp_irq`). A stuck counter means
+    the sensor itself is not firing — unrelated to TEE/template issues.
+  - The TA's own `[GF_TA]` debug logs are compile-time gated behind a
+    global flag and never reach logcat; `[gf_hal]` lines are the usable
+    signal. `gf_ta.axf`'s DWARF (`arm-linux-androideabi-addr2line`,
+    `objdump --dwarf=info`) is the fastest way to decode its error codes.
+- **§10b-d correction:** its "verified end-to-end" claim cannot have been
+  true in the persistent sense — the template storage was being destroyed
+  at every boot even then. What it observed was, at best, an in-session
+  match against RAM-resident templates. Superseded by this section.
 
 ---
 
@@ -3432,6 +3608,192 @@ Two more measurement traps, in the same family as §31.4:
    the movement of the lens cannot be observed through the viewfinder during such
    a probe — hence the i2c trace as the substitute observation.
 
+
+## 33. IR remote: the HAL encoded the waveform in a format the driver rejects (2026-10-03)
+
+This supersedes §28.8. IR *does* work on nikel; the emitter exists; the HAL was
+handing the driver a buffer the driver could not parse, and then reporting that
+failure as success.
+
+#### 33.1 Getting a trustworthy measurement
+
+The first live test used `com.duokan.phone.remotecontroller`, and the Daikin codes
+in that app do not work **on any phone** — including topaz, whose IR hardware is
+demonstrably fine. That made the entire earlier test worthless.
+
+A working reference was needed, so:
+
+1. MIUI V10 (Android 6.0) was flashed to get a known-good IR reference.
+2. On MIUI, `com.matanyamin.sassintvremotecontrol` (labelled **Daikin AC
+   Remote**) drove the AC successfully. Its APK was pulled and installed on LOS.
+3. The same app, same AC, same buttons were then used on both ROMs.
+
+With that calibration, the comparison is meaningful:
+
+```
+                       MIUI (AC responds)     LOS 14.1 (silent)
+pattern_len                    134               134        identical
+carrier                38028 / 38380 Hz   38028 / 38380 Hz   identical
+IRQ 200 (IRTX)                  0                 0        identical
+write() to /dev/irtx    blocks ~136 ms     returns < 1 ms   DIFFERENT
+```
+
+`IRQ 200` being 0 on both is the important control: **it is useless as an
+indicator.** Do not use it in either direction.
+
+#### 33.2 The driver rejects the buffer
+
+`adb root` works on nikel once *Root access* is enabled in Developer Options,
+`/sys/kernel/debug` mounts, and the driver's own debug output can be turned up:
+
+```
+adb shell 'echo "file mt_irtx.c +p" > /sys/kernel/debug/dynamic_debug/control'
+```
+
+The driver then narrates what it did with the buffer:
+
+```
+[IRTX] open by Binder:813_2
+[IRTX] IRTX_IOC_SET_CARRIER_FREQ: 38028
+[IRTX] irtx write len=0x33dc, pwm=0          ← 13 276 B = exactly our count
+set_consumerir_pwm:zlya carrier_freq =38028,irtx_test = 1
+[consumerir] dev_char_write 490 : zly4 total_time=-809311486: num_clock=1925657,num=120354
+[consumerir] dev_char_write 550 : zly5_error rel_buffer_num>=num is error rel_buffer_num=120571,num=120571
+```
+
+`total_time` should be ~106 000. The driver computed **-809311486** — garbage. It
+could not read the waveform.
+
+Note these `zly*` debug strings exist **only** in the kernel that actually boots.
+`kernel_apollo_n/drivers/misc/mediatek/irtx/mt6797/mt_irtx.c` — the source in this
+machine — has none of them and a different `dev_char_write`. It is not the driver
+in the ROM's `boot.img`.
+
+#### 33.3 What the driver expects, proven with a native prober
+
+Rather than reverse the whole driver, five candidate encodings were written to
+`/dev/irtx` from a freestanding AArch64 binary (no libc, raw syscalls, built with
+`prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9`) that opens the node,
+sets the carrier ioctl, and writes one buffer per format:
+
+```
+[A_lsb_1us_per_bit  (HAL KITA)]  write rc=0      25 ms   ← rejected
+[B_msb_1us_per_bit]             write rc=-12    25 ms   ← ENOMEM
+[C_durations_u32]               write rc=536   123 ms   ← ACCEPTED, blocks
+[D_durations_x10 (0.1us)]       write rc=536  1211 ms   ← ACCEPTED, blocks
+[E_lsb_0.1us_per_bit]           write rc=0     242 ms   ← rejected
+```
+
+The driver accepts a buffer in which **each `u32` is one duration in
+microseconds**, alternating mark and space, and it synthesises the carrier
+itself. It does not accept a 1-bit-per-microsecond bitmask.
+
+The driver's own arithmetic confirms it. With format C, using the real Daikin
+pattern captured from the app:
+
+```
+zly4 total_time=70668: num_clock=2739,num=172     ← correct, matches the pattern sum
+                                                     (no zly5_error)
+```
+
+With the old bitmask, the same sum came out as -809311486.
+
+Two more details worth recording:
+
+* A `write()` that the driver rejects returns **0**, not a negative errno. Some
+  formats also produce `-ENOMEM`, from `dma_alloc_coherent()` in the driver.
+* With `dd` and 25 consecutive attempts the failures were 25/25 while 438 MB was
+  free and 1.38 GB available, so this is **not** memory exhaustion — it is a
+  format rejection.
+
+#### 33.4 Second bug: a rejected write was reported as success
+
+This is why the log looked healthy for so long.
+
+```c
+ret = write(fd, (char *)wave_buffer, buffer_len * 4);
+...
+if (ret < 0) {
+    ALOGE("file write fail, errno=%d\n", errno);
+    goto exit;
+} else {
+    ALOGD("data is delivered to kernel, sleep now\n");   /* reached when ret == 0 */
+}
+```
+
+`write()` returned 0, `0 < 0` is false, and the HAL logged
+`data is delivered to kernel, sleep now` — an unqualified success message — while
+the driver had discarded the buffer. Every log-based check in §28.8 was therefore
+reading a lie.
+
+#### 33.5 The fix
+
+In `consumerir/consumerir.c`, both `consumerir_transmit()` and
+`lg_tv_power_test()` now:
+
+1. **send one duration per `u32`** instead of expanding to a bitmask:
+
+   ```c
+   buffer_len = pattern_len;                  /* was ceil(total_time/32) */
+   wave_buffer = malloc(buffer_len * 4);
+   if (!wave_buffer) { ALOGE("malloc(%d) fail\n", buffer_len * 4); goto exit; }
+   for (i = 0; i < pattern_len; i++)
+       wave_buffer[i] = (unsigned int)pattern[i];
+   ret = write(fd, (char *)wave_buffer, buffer_len * 4);
+   ```
+
+2. **treat a short write as a failure** instead of only checking `< 0`:
+
+   ```c
+   if (ret != buffer_len * 4) {
+       ALOGE("file write short: ret=%d expected=%d errno=%d\n",
+             ret, buffer_len * 4, errno);
+       ret = -1;
+       goto exit;
+   }
+   ```
+
+3. check the `malloc()` result (it was previously unchecked in both functions).
+
+While there: `lg_tv_power_test()` leaked `wave_buffer` on every call — it had no
+`free()` at all. Fixed in the same pass.
+
+The now-dead `int_ptr`, `bit_ptr`, `current_level` and the inner `j` loop were
+removed, along with the unused `<math.h>` `ceil()` dependency.
+
+#### 33.6 Status, and what is still unverified
+
+```
+VERIFIED
+  driver accepts duration-per-u32 : rc == byte count, blocks for the waveform
+  driver rejects bitmask          : rc == 0, plus zly5_error
+  driver's total_time is correct  : 70668 µs for the real Daikin pattern
+  short write is now reported     : ALOGE instead of a false success log
+
+NOT YET VERIFIED
+  the AC actually responding on LOS with the patched HAL
+```
+
+The last row is open. Rebuilding needs `rm -rf rom_source/out` first (60 GB), and
+then the AC has to be observed while aimed at the unit — which needs a person
+holding the phone pointed at the AC during the test, not just a camera pointed at
+a dark screen. Until that row is closed, this section records a fix that is
+proven at the driver interface and unproven at the appliance.
+
+#### 33.7 Lessons from this investigation
+
+* **Calibrate the tool before trusting it.** A Daikin code from one app failed on
+  topaz too. Without noticing that, every conclusion drawn from LOS was unsound.
+* **The running source is not the source you have.** `kernel_apollo_n`'s
+  `mt_irtx.c` is a different driver from the one in `boot.img`. Check
+  `uname -a` and `/proc/kallsyms` before reading driver code.
+* **A zero return is not success.** Check `write()` against the byte count, not
+  the sign.
+* **A log line is not evidence.** `data is delivered to kernel` was printed on the
+  failure path. Read the code path, not the message.
+* **Do not read absence of evidence as evidence of absence.** "No IR flash on the
+  camera" (topaz is equally invisible) and "IRQ count is 0" (also 0 on working
+  MIUI) both looked conclusive and were both meaningless.
 
 ## How to apply the out-of-tree fixes
 

@@ -43,7 +43,7 @@ repo sync
 # Clone device tree and vendor blobs
 cd rom_source
 git clone https://github.com/CoreXGT/android_device_xiaomi-nikel-lineage-14.1.git -b master device/xiaomi/nikel
-git clone https://github.com/CoreXGT/android_vendor_xiaomi_nikel.git -b master vendor/xiaomi/nikel
+git clone https://github.com/CoreXGT/android_vendor_xiaomi_nikel.git -b cm-14.1 vendor/xiaomi/nikel
 
 # Apply out-of-tree patches (netd, frameworks/opt/net/wifi, etc.)
 cd device/xiaomi/nikel/patches && . apply.sh && cd -
@@ -56,8 +56,8 @@ export CCACHE_DIR=<cache dir>
 # Jack server heap — REQUIRED on 8 GB machines (framework dex OOMs otherwise).
 # The build launches/restarts the Jack server from this env var
 # (see prebuilts/sdk/tools/jack_server_setup.mk).
-export JACK_SERVER_VM_ARGUMENTS="-Dfile.encoding=UTF-8 -XX:+TieredCompilation -Xmx2g"
-export ANDROID_JACK_VM_ARGS="-Dfile.encoding=UTF-8 -XX:+TieredCompilation -Xmx2g"
+export JACK_SERVER_VM_ARGUMENTS="-Dfile.encoding=UTF-8 -XX:+TieredCompilation -Xmx4g"
+export ANDROID_JACK_VM_ARGS="-Dfile.encoding=UTF-8 -XX:+TieredCompilation -Xmx4g"
 
 # -----------------------------------------------------------------------------
 #                                       BUILD
@@ -78,13 +78,12 @@ breakfast nikel user
 
 # -----------------------------------
 # Build
-brunch nikel
+brunch nikel user
 
 # or
 
 # Build otapackage only with 4 jobs
-export MAKEFLAGS="-j4"
-make otapackage -j4
+make -j4 otapackage
 # -----------------------------------
 # -----------------------------------------------------------------------------
 ```
@@ -101,7 +100,7 @@ pkill -f jack-server
 # Start the server
 ./prebuilts/sdk/tools/jack-admin start-server
 
-# Show the server mmemory
+# Show the server memory
 ps aux | grep jack-server | grep -o "\-Xmx[0-9a-z]*"
 ```
 
@@ -109,7 +108,10 @@ ps aux | grep jack-server | grep -o "\-Xmx[0-9a-z]*"
 ### Build notes
 
 - **RAM**: 8 GB is enough with `-j4`; `mka`/`brunch` force `-j$(nproc)` which
-  OOMs on 8 GB machines — prefer `make otapackage -j4`.
+  OOMs on 8 GB machines — prefer `make otapackage -j4`. Note: `export
+  MAKEFLAGS="-j4"` does **not** cap `mka`/`brunch` (they pass an explicit
+  `-j$(nproc)` on the command line, which overrides MAKEFLAGS). Extra `-j`
+  arguments appended to `mka` do work — `mka bacon -j4` builds with 4 jobs.
 - **Jack**: on newer JDKs the Jack server needs TLSv1/1.1 re-enabled in
   `java.security` and a manual start:
   `jack-admin start-server -Djack.home=$HOME/.jack-server -Xmx6g -cp ...`
@@ -119,7 +121,8 @@ ps aux | grep jack-server | grep -o "\-Xmx[0-9a-z]*"
   `export CCACHE_DIR=<path>`.
 - **Host toolchain**: `check_radio_versions.py` is Python 2 and flex-2.5.39
   breaks on glibc ≥ 2.27 — use
-  `export PATH=<python2>/bin:$PATH LC_ALL=C`. **note**: My latest build using Ubuntu 18 LTS, so I haven’t had this problem
+  `export PATH=<python2>/bin:$PATH LC_ALL=C`. Note: the latest build used
+  Ubuntu 18.04 LTS, so this problem was not encountered there.
   
 
 ## Feature Status
@@ -137,9 +140,9 @@ ps aux | grep jack-server | grep -o "\-Xmx[0-9a-z]*"
 | Camera (front) | ✅ Fixed | photo, BUGFIXES.md #12 (bd54 kernel + kdSensorList swap, shipped in `prebuilt/kernel`) |
 | Off-charge (charge while powered off) | ✅ Fixed | boots to Android when charger is plugged while off (no KPOC animation), BUGFIXES.md #14 — `off-mode-charge=0` in `para` partition |
 | Voice calls | ❌ Broken | MD3 speech crash, known issue, BUGFIXES.md #8 |
-| Fingerprint scanner | ✅ Fixed | Goodix + Kinibi TEE port, BUGFIXES.md #10b/#10b-c |
+| Fingerprint scanner | ✅ Fixed | Goodix + Kinibi TEE port, BUGFIXES.md #10b/#10b-c; template storage moved out of `/data/app` (patched `mcDriverDaemon`) so enrolled fingers survive reboots, #10b-f |
 | FM radio | Not verified | |
-| IR remote | ✅ Fixed | consumerir HAL was in the tree but never built — three gates, BUGFIXES.md #28. Not yet verified on hardware |
+| IR remote | 🔧 Fixed in tree | driver was **rejecting every buffer** (`write()` returned 0) and the HAL read that as success; now sends durations per `u32` — BUGFIXES.md §33 |
 
 ## Kernel note
 
@@ -171,7 +174,10 @@ LOS source (front camera breaks again). Details: BUGFIXES.md #12.
 
 > Fingerprint requires the mobicore TEE daemon (shipped + started on
 > post-fs-data). If the fingerprint menu errors, check `getprop sys.boot_completed`
-> and `logcat | grep gf_` first.
+> and `logcat | grep gf_` first. Enrolled fingers are stored by the TEE in
+> `/data/misc/mcregistr` (the shipped `mcDriverDaemon` is a same-length
+> binary patch pointing the TA storage there — PackageManager deletes every
+> non-APK directory under `/data/app`, see BUGFIXES.md #10b-f).
 
 ## Credits
 
