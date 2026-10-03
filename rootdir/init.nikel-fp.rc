@@ -3,8 +3,17 @@
 # NOT on fs — that trigger has already fired when this file is parsed).
 
 on post-fs-data
-    mkdir /data/app/mcRegistry 0775 system system
-    mkdir /data/app/mcRegistry/TbStorage 0775 system system
+    # TA secure storage (Kinibi registry base). MUST live outside /data/app:
+    # PackageManagerService.reconcileApps() deletes every non-APK directory
+    # under /data/app at systemReady ("Destroying /data/app/mcRegistry due to:
+    # Missing base APK"), which wiped the Goodix TA's stored templates every
+    # boot (enroll worked, unlock always failed with GF_ERROR_NOT_MATCH).
+    # NOTE the truncated name "mcregistr": mcDriverDaemon hardcodes the full
+    # storage paths as fixed-length string constants, so the patched daemon
+    # (see BUGFIXES.md 10b-f) uses "/data/misc/mcregistr..." to keep every
+    # path byte-for-byte the same length as the original.
+    mkdir /data/misc/mcregistr 0775 system system
+    mkdir /data/misc/mcregistr/TbStorage 0775 system system
     export MC_AUTH_TOKEN_PATH /data
     chown system system /dev/goodix_fp
     chmod 0660 /dev/goodix_fp
