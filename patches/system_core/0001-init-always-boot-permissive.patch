@@ -1,0 +1,62 @@
+From 1c3323b52e290b2ca2549c357dce13054500a47e Mon Sep 17 00:00:00 2001
+From: CoreXGT <aulia.ikbal09@gmail.com>
+Date: Mon, 5 Oct 2026 08:23:11 +0700
+Subject: [PATCH] init: always boot permissive on all build variants
+
+selinux_is_enforcing() returned true for user builds
+(ALLOW_PERMISSIVE_SELINUX=0), so init forced the kernel into
+enforcing right at startup. Nikel's sepolicy is incomplete for the
+MTK partitions, so a user build stalls in early-init mount_all and
+never leaves the MI logo. Return false unconditionally so every
+variant boots with androidboot.selinux=permissive from LK.
+
+Change-Id: I5bd86e4745e4a32530e5972112cac891e0b2cae9
+---
+ init/init.cpp | 14 +++++++++-----
+ 1 file changed, 9 insertions(+), 5 deletions(-)
+
+diff --git a/init/init.cpp b/init/init.cpp
+index 7a370596e..430673409 100755
+--- a/init/init.cpp
++++ b/init/init.cpp
+@@ -85,7 +85,9 @@ int have_console;
+ std::string console_name = "/dev/console";
+ static time_t process_needs_restart;
+ 
+-const char *ENV[32];
++// xen0n: some MTK services (e.g. ril-daemon-mtk) require very large number
++// of sockets, which can't be contained in 32 entries minus other variables.
++const char *ENV[64];
+ 
+ bool waiting_for_exec = false;
+ 
+@@ -440,6 +442,7 @@ static void selinux_init_all_handles(void)
+     sehandle_prop = selinux_android_prop_context_handle();
+ }
+ 
++#if 0
+ enum selinux_enforcing_status { SELINUX_PERMISSIVE, SELINUX_ENFORCING };
+ 
+ static selinux_enforcing_status selinux_status_from_cmdline() {
+@@ -453,13 +456,14 @@ static selinux_enforcing_status selinux_status_from_cmdline() {
+ 
+     return status;
+ }
++#endif
+ 
+ static bool selinux_is_enforcing(void)
+ {
+-    if (ALLOW_PERMISSIVE_SELINUX) {
+-        return selinux_status_from_cmdline() == SELINUX_ENFORCING;
+-    }
+-    return true;
++    // nikel CM-14.1: always boot permissive for all variants
++    // (this tree's SELinux policy is incomplete; enforcing on user
++    // builds wedges the boot at early-init mount_all).
++    return false;
+ }
+ 
+ int selinux_reload_policy(void)
+-- 
+2.53.0
+

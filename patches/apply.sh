@@ -30,6 +30,7 @@ apply_patch() { # <patch-file> <target-dir-relative>
 
 apply_patch "$THIS_DIR/cmsdk/0001-cmsdk-NetworkTraffic-proc-net-dev-fallback.patch" vendor/cmsdk
 apply_patch "$THIS_DIR/audiofx/0001-AudioFX-onStartCommand-guard.patch" packages/apps/AudioFX
+apply_patch "$THIS_DIR/system_core/0001-init-always-boot-permissive.patch" system/core
 
 # webview prebuilt (binary, shipped compressed)
 WEBVIEW_OK_MD5="2021fea0adff94bffc9f9990b56077c6"

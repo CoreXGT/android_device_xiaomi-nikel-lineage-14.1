@@ -48,6 +48,7 @@ Bug diagnostics use these code paths repeatedly:
 | 29 | **ADB ran as root → scrcpy clipboard dead** | ✅ FIXED (needs a `user` build) | §29 |
 | 30 | **Audit of §0/§13/§23/§27 against the tree** | 🔍 2 corrections, 1 voided dead-end | §30 |
 | 31 | **Live re-check of the AF chain** | 🔍 §23 fixes confirmed; `EPERM` on the first VCM ioctl | §31 |
+| 34 | `user` build stuck at MI logo — init forced SELinux enforcing | ✅ FIXED (2026-10-05) | §34 |
 
 **Two things are commonly misread here:**
 
@@ -3795,6 +3796,77 @@ proven at the driver interface and unproven at the appliance.
   camera" (topaz is equally invisible) and "IRQ count is 0" (also 0 on working
   MIUI) both looked conclusive and were both meaningless.
 
+## 34. `user` builds hang at the MI logo — init forced SELinux enforcing (2026-10-05)
+
+**Single controlled experiment.** Same tree, same consumerir HAL, same setup:
+
+| Build | Result |
+| :--- | :--- |
+| `nikel user` + consumerir | stuck at MI logo |
+| `nikel userdebug` + consumerir + GApps pico | boots, reboots fine |
+
+The kernels in both boot.img are byte-identical (8 144 502 B, prebuilt MIUI bd54).
+Ramdisk deltas are the expected variant ones — `ro.debuggable`, `init`/`adbd`/
+`healthd` binaries, and `sepolicy` (userdebug keeps the extra `# Allow ... /data/adb`/
+`method_trace`/fifo *debug* rules — a normal `target_build_variant=user` m4
+difference, ~9 KB smaller on the `user` side). Nothing in the delta itself is
+an obvious boot blocker.
+
+### Diagnosis
+
+Ram console dumps of the frozen boots only showed the kernel's MTK battery
+telemetry after init start — the **kernel is alive**, userspace is wedged.
+The window between kernel-final-messages and battery-spam is exactly early
+init, which is where SELinux mode is set.
+
+Root cause in `system/core/init/init.cpp`:
+
+```c
+static bool selinux_is_enforcing(void)
+{
+    if (ALLOW_PERMISSIVE_SELINUX) {        /* userdebug/eng = 1, user = 0 */
+        return selinux_status_from_cmdline() == SELINUX_ENFORCING;
+    }
+    return true;                            /* user: ALWAYS enforcing */
+}
+```
+
+On `user`, init writes `1` to `/sys/fs/selinux/enforce` within the first ~2.3 s.
+Nikel's SELinux policy (MTK/CM 14.1, incomplete) rejects the transitions and
+mkdir/mount operations the early boot needs, so `late_init` /
+`mount_all` (`/protect_f`, `/persist`, `/nvdata`, ext4 system, etc.) stalls
+silently and `ro.kernel.android.selinux` never settles — frozen at MI logo.
+`userdebug` keeps LK's own `androidboot.selinux=permissive` → denials demoted to
+log noise → everything proceeds.
+
+### Fix
+
+`system/core/init/init.cpp`: `selinux_is_enforcing()` now returns `false`
+unconditionally (always permissive; matches the pre-existing userdebug hack).
+Shipped as `patches/system_core/0001-init-always-boot-permissive.patch`.
+
+### Verification
+
+Rebuilt `init` (`make init`), spliced it into the `user` ramdisk (boot offset
+8 146 944, ramdisk size field updated at `boot.img+16`), `dd` to
+`/dev/block/mmcblk0p21`, rebooted: **reached homescreen, `getenforce` =
+Permissive** ✓.
+
+### Saga — methods that earned their keep, or did not
+
+- LK rewrites the boot partition's first 2 KB (the header, including the
+  boot command line), so `initcall_debug`/`loglevel` in `BOARD_KERNEL_CMDLINE`
+  **never reach the kernel** — get a UART or read the battery-spam framing of
+  the console instead.
+- TWRP *fs-level* pushes to `/system` (adb push, gapps zips) are served from a
+  stale page cache and do **not** persist; only raw partition writes do. Never
+  trust a read-through-the-TWRP-mount, verify with direct `dd` reads.
+- GApps "ERROR:20 not enough space" is a false positive here (2.1 GB free on
+  /system): re-enter recovery and retry.
+- `/system` is 3.1 GB, `/` userdata is big — still don't waste cycles: the
+  correct way to reason about a frozen boot was "userspace wedged" (battery
+  log spam), not "kernel dead".
+
 ## How to apply the out-of-tree fixes
 
 All fixes outside `device/xiaomi/nikel` and `vendor/xiaomi/nikel` are shipped
@@ -3805,6 +3877,7 @@ as patches in `device/xiaomi/nikel/patches/` and applied by `apply.sh`:
 | `system_netd.patch` | `system/netd` | hostapd ctrl file `wlan0`→`ap0` in `SoftapController.cpp`; rpfilter tether rule non-fatal in `NatController.cpp` |
 | `frameworks_opt_net_wifi.patch` | `frameworks/opt/net/wifi` | 5 GHz soft AP: fixed fallback channel 36, no country-code gate |
 | `system_core.patch` | `system/core` | existing cm-14.1 device patches |
+| `system_core/0001-init-always-boot-permissive.patch` | `system/core` | init forced `user` builds into SELinux enforcing, hanging at the MI logo; make init always permissive (BUGFIXES.md §34) |
 | `system_sepolicy.patch` | `system/sepolicy` | SELinux rules |
 | `frameworks_av.patch` | `frameworks/av` | existing device patches |
 | `frameworks_native.patch` | `frameworks/native` | existing device patches |
