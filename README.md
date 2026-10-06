@@ -56,8 +56,8 @@ export CCACHE_DIR=<cache dir>
 # Jack server heap — REQUIRED on 8 GB machines (framework dex OOMs otherwise).
 # The build launches/restarts the Jack server from this env var
 # (see prebuilts/sdk/tools/jack_server_setup.mk).
-export JACK_SERVER_VM_ARGUMENTS="-Dfile.encoding=UTF-8 -XX:+TieredCompilation -Xmx4g"
-export ANDROID_JACK_VM_ARGS="-Dfile.encoding=UTF-8 -XX:+TieredCompilation -Xmx4g"
+export JACK_SERVER_VM_ARGUMENTS="-Dfile.encoding=UTF-8 -XX:+TieredCompilation -Xmx5g"
+export ANDROID_JACK_VM_ARGS="-Dfile.encoding=UTF-8 -XX:+TieredCompilation -Xmx5g"
 
 # -----------------------------------------------------------------------------
 #                                       BUILD
@@ -78,7 +78,7 @@ breakfast nikel user
 
 # -----------------------------------
 # Build
-brunch nikel user
+brunch nikel
 
 # or
 
