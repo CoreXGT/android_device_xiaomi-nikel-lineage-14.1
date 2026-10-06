@@ -49,8 +49,16 @@ BOARD_MKBOOTIMG_ARGS := \
 	--board nikel
 
 # Hack for building without kernel sources
+# Guarded on $(OUT): OUT is only exported by lunch (build/envsetup.sh
+# setpaths), but breakfast/brunch run three config-only make passes
+# (check_product x2 + dump-var cache) BEFORE lunching. Unguarded, $(OUT) was
+# empty there and every `breakfast nikel` printed three
+#   mkdir: cannot create directory '/obj': Permission denied
+# lines (real builds always have OUT set, so the dir is still created then).
+ifneq (,$(strip $(OUT)))
 ifeq ($(TARGET_DEVICE),nikel)
 $(shell mkdir -p $(OUT)/obj/KERNEL_OBJ/usr)
+endif
 endif
 
 # Partitions
