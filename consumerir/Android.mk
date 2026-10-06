@@ -30,6 +30,14 @@ LOCAL_SRC_FILES := consumerir.c
 LOCAL_SHARED_LIBRARIES := liblog libcutils
 LOCAL_MODULE_TAGS := optional
 
+# nikel is an arm64 target: system_server runs 64-bit and hw_get_module() in a
+# 64-bit process only scans /system/lib64/hw. LOCAL_MULTILIB := both keeps the
+# 32-bit variant built as well, so 32-bit clients can load the HAL too. (The
+# 2026-10-05 boot-animation hang was NOT a multilib problem: the HAL was
+# missing from the image entirely because PRODUCT_PACKAGES named the
+# nonexistent module "consumerir." — see BUGFIXES.md #35.)
+LOCAL_MULTILIB := both
+
 include $(BUILD_SHARED_LIBRARY)
 
 endif

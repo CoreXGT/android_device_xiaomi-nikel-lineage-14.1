@@ -4000,3 +4000,67 @@ crash reproduces with **both** images and with the official V10.2.1.0
 firmware, so the modem image is not the differentiator either.
 
 ---
+
+---
+
+## 35. Full builds silently dropped consumerir.mt6797.so from the image — the 2026-10-05 OTA hung at the boot animation (2026-10-06)
+
+**Symptom.** `lineage_nikel-ota-8f92c9a068.zip` (userdebug, built 2026-10-05
+22:33) boots to the boot animation and never leaves it; the 2026-10-04
+userdebug build (12c4c4f8cb) boots fine. boot.img is functionally identical
+between the two (same kernel, same ramdisk); the regression is in system.img.
+
+**Root cause chain (each step verified, not inferred):**
+1. `common.mk` added `PRODUCT_PACKAGES += consumerir.$(TARGET_BOARD_PLATFORM)`.
+   `PRODUCT_PACKAGES` is evaluated during **product config**, but
+   `TARGET_BOARD_PLATFORM` is only defined in `BoardConfig.mk` (line 8), which
+   is parsed **after** product config (`build/core/envsetup.mk:131` includes
+   `product_config.mk`; the board config is read from `config.mk` later). The
+   entry therefore expanded to the nonexistent module **`consumerir.`**.
+2. Stale-record proof: the broken build's `.kati_stamp-lineage_nikel` contains
+   the lookups `ALL_MODULES.consumerir..INSTALLED`,
+   `ALL_MODULES.consumerir..REQUIRED` and `ALL_MODULES.consumerir._32.CLASS`
+   (note the double dot — a module literally named `consumerir.`).
+3. The dangling-module check that would have warned about this
+   (`build/core/main.mk:802`) runs **only for sdk builds**
+   (`ifdef is_sdk_build`), so every full build stayed silent.
+4. The module itself was always *defined* — `consumerir/Android.mk` is parsed
+   later, when `TARGET_BOARD_PLATFORM` is known — so `build.ninja` contained
+   the install edges `system/lib{,64}/hw/consumerir.mt6797.so`. But
+   `ninja -t query` on the 2026-10-05 graph shows those edges feed only the
+   module phony `consumerir.mt6797`, never the `files` aggregation that the
+   system-image packaging depends on (control: `lights.mt6797.so` feeds
+   `files`). Ninja therefore never executed them.
+5. The HAL only ever reached images through the manual
+   `make consumerir.mt6797` workaround (which installs into the staging tree)
+   plus staging survival. On 2026-10-05 an installclean wiped the staging tree
+   (every staged HAL `.so` restamped 22:33; product/variant unchanged), the
+   15:48 manual install went with it, and the full build did not reinstall it.
+6. The OTA shipped `system/etc/permissions/android.hardware.consumerir.xml`
+   (PRODUCT_COPY_FILES — always installed) with **no** `consumerir.mt6797.so`
+   (grep of `system.new.dat`: 0 hits vs 3 in the working 10-04 image).
+7. `system_server` constructs `ConsumerIrService` directly
+   (`frameworks/base/services/java/com/android/server/SystemServer.java:663`),
+   and the constructor throws
+   `RuntimeException("FEATURE_CONSUMER_IR present, but no IR HAL loaded!")`
+   when the feature is declared but `halOpen()` finds no HAL
+   (`ConsumerIrService.java:41-56`). The exception is not caught;
+   system_server dies before InputManager/WindowManager are started, zygote
+   restarts it, and the loop keeps the boot animation alive forever.
+
+**Fix.** `common.mk` now names the module literally:
+`PRODUCT_PACKAGES += consumerir.mt6797`. `$(TARGET_BOARD_PLATFORM)` must not
+be used for module names in product config. The contradictory comments in
+`board.mk` / `AndroidBoard.mk` were reconciled with the verified inclusion
+facts: `board.mk` IS included (via `BoardConfig.mk` line 4); `AndroidBoard.mk`
+is NEVER read (cm-14.1 never defines `TARGET_DEVICE_DIR`, so
+`-include $(TARGET_DEVICE_DIR)/AndroidBoard.mk` silently expands to
+`/AndroidBoard.mk` and vanishes).
+
+**Verification.** After the fix, `make nothing` regenerates the graph with no
+`consumerir.` lookups left in the kati stamp, `ninja -t query` shows both
+install edges feeding `files`, and executing the two edges installs
+`system/lib64/hw/consumerir.mt6797.so` (64-bit) and
+`system/lib/hw/consumerir.mt6797.so` (32-bit, via `LOCAL_MULTILIB := both`)
+into staging. The manual `make consumerir.mt6797` step before full builds is
+no longer needed, and full builds now survive installclean.

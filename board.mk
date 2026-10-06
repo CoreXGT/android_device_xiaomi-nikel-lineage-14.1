@@ -25,11 +25,19 @@ WIFI_DRIVER_FW_PATH_STA := STA
 WIFI_DRIVER_FW_PATH_AP := AP
 WIFI_DRIVER_FW_PATH_P2P := P2P
 
-# Consumerir
-# NOT set here on purpose. This build system never includes board.mk (cm-14.1
-# reads AndroidBoard.mk), so a variable defined here has no effect at all — that
-# is exactly how MTK_IRTX_SUPPORT stayed undefined for so long. The real
-# definition lives in AndroidBoard.mk. Kept here only as documentation.
+# Consumerir (IR remote) — must be "yes", NOT "true".
+# consumerir/Android.mk gates its whole module definition on
+#   ifeq ($(strip $(MTK_IRTX_SUPPORT)),yes)
+# and board.mk IS included — by BoardConfig.mk (line 4) during the board-config
+# phase, before any Android.mk is parsed. (AndroidBoard.mk is the file that is
+# never read: cm-14.1 never defines TARGET_DEVICE_DIR.) Setting the variable
+# here makes the module *defined*; the reason full builds never *installed* it
+# was a broken PRODUCT_PACKAGES name in common.mk — "consumerir.", from the
+# empty $(TARGET_BOARD_PLATFORM) expansion in product config — fixed there by
+# hardcoding the literal module name. The old workaround of running
+# `make consumerir.mt6797` before every full build is no longer needed
+# (see BUGFIXES.md #35).
+MTK_IRTX_SUPPORT := yes
  
 # Bluetooth
 BOARD_HAVE_BLUETOOTH := true
