@@ -64,7 +64,11 @@ export ANDROID_JACK_VM_ARGS="-Dfile.encoding=UTF-8 -XX:+TieredCompilation -Xmx5g
 #
 #   breakfast nikel user     -> lunch lineage_nikel-user       <- build this
 #   breakfast nikel          -> lunch lineage_nikel-userdebug  <- debug only
-#   brunch nikel            == breakfast nikel + mka bacon
+#   brunch nikel user        == breakfast nikel user + mka bacon
+#   brunch nikel             == breakfast nikel userdebug + mka bacon — a
+#                               bare brunch does NOT keep the variant that
+#                               breakfast selected; it always re-lunches
+#                               userdebug (vendor/cm/build/envsetup.sh:59-61)
 #                             (mka bacon == mka otapackage)
 #
 # `breakfast` with no second argument defaults to **userdebug**, which sets
@@ -78,7 +82,7 @@ breakfast nikel user
 
 # -----------------------------------
 # Build
-brunch nikel
+brunch nikel user
 
 # or
 
