@@ -1,101 +1,75 @@
-From 6d52874f8444716944dfc6c4dd74dd93b0a2a75d Mon Sep 17 00:00:00 2001
-From: Wang Xuerui <idontknw.wang@gmail.com>
-Date: Fri, 30 Sep 2016 21:00:47 +0800
-Subject: [PATCH] init: HACK re-allow services without selinux contexts defined
+From 4f6923cc53dcbd52b39d422ce9bc180628f7a74c Mon Sep 17 00:00:00 2001
+From: CoreXGT <aulia.ikbal09@gmail.com>
+Date: Wed, 7 Oct 2026 20:34:59 +0700
+Subject: [PATCH] Add MTK porting patches: libxlog shim, ifc_utils MTK extras,
+ adbd enabled
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
 
-Change-Id: I1c83d5fb9b84acb27f705e1b3042b63ff095c7e7
+These changes have been in the working tree all along and are part of every
+successful build (both userdebug 40dbdb5b01 and user rebuild, both
+field-tested OK):
+- libxlog: __xlog_buf_printf shim routing to __android_log_vprint
+- libnetutils/ifc_utils + ifc.h: MTK extras (allmc, throttle, fwmark,
+  ccmni_md_cfg, reset_connection_by_uid)
+- init.h: ENV[32] -> ENV[64]
+- libcutils: disable surfaceflinger file-cap entry (breaks LD_SHIM_LIBS)
+- init.usb.rc: keep adbd enabled
+
+🤖 Generated with Codebuff
+Co-Authored-By: Codebuff <noreply@codebuff.com>
+
+Change-Id: Ia1fb358d74c0c8b7e4aedb069e6ed1990d4fbbe6
 ---
- init/init.cpp    | 4 +++-
- init/service.cpp | 2 ++
- 2 files changed, 5 insertions(+), 1 deletion(-)
+ include/netutils/ifc.h  |  13 ++
+ init/init.h             |   2 +-
+ libcutils/fs_config.c   |   3 +-
+ libnetutils/ifc_utils.c | 264 ++++++++++++++++++++++++++++++++++++++++
+ libxlog/Android.mk      |  13 ++
+ libxlog/xlog.c          |  19 +++
+ rootdir/init.usb.rc     |   2 +-
+ 7 files changed, 313 insertions(+), 3 deletions(-)
+ create mode 100644 libxlog/Android.mk
+ create mode 100644 libxlog/xlog.c
 
-diff --git a/init/init.cpp b/init/init.cpp
-index 9992b4784..e9da9586d 100755
---- a/init/init.cpp
-+++ b/init/init.cpp
-@@ -434,6 +434,7 @@ static void selinux_init_all_handles(void)
-     sehandle_prop = selinux_android_prop_context_handle();
- }
+diff --git a/include/netutils/ifc.h b/include/netutils/ifc.h
+index 3b272343d..e6deaa64c 100644
+--- a/include/netutils/ifc.h
++++ b/include/netutils/ifc.h
+@@ -61,6 +61,19 @@ extern int ifc_configure(const char *ifname, in_addr_t address,
  
-+#if 0
- enum selinux_enforcing_status { SELINUX_PERMISSIVE, SELINUX_ENFORCING };
+ extern in_addr_t prefixLengthToIpv4Netmask(int prefix_length);
  
- static selinux_enforcing_status selinux_status_from_cmdline() {
-@@ -447,11 +448,12 @@ static selinux_enforcing_status selinux_status_from_cmdline() {
++extern int ifc_is_up(const char *name, unsigned *isup);
++extern int ifc_enable_allmc(const char *name);
++extern int ifc_disable_allmc(const char *name);
++extern int ifc_reset_connection_by_uid(int uid, int error);
++extern int ifc_set_throttle(const char *ifname, int rxKbps, int txKbps);
++extern int ifc_set_fwmark_rule(const char *ifname, int mark, int add);
++extern int ifc_set_txq_state(const char *ifname, int state);
++extern int ifc_ccmni_md_cfg(const char *ifname, int md_id);
++struct uid_err {
++    int appuid;
++	int errorNum;
++};
++
+ __END_DECLS
  
-     return status;
- }
-+#endif
+ #endif /* _NETUTILS_IFC_H_ */
+diff --git a/init/init.h b/init/init.h
+index 345d442c0..f93d0c5ba 100644
+--- a/init/init.h
++++ b/init/init.h
+@@ -24,7 +24,7 @@ class Service;
  
- static bool selinux_is_enforcing(void)
- {
-     if (ALLOW_PERMISSIVE_SELINUX) {
--        return selinux_status_from_cmdline() == SELINUX_ENFORCING;
-+        return false;  // selinux_status_from_cmdline() == SELINUX_ENFORCING;
-     }
-     return true;
- }
-diff --git a/init/service.cpp b/init/service.cpp
-index 76e0bc876..812857959 100644
---- a/init/service.cpp
-+++ b/init/service.cpp
-@@ -371,12 +371,14 @@ bool Service::Start() {
-             scon = ret_scon;
-             free(ret_scon);
-         }
-+#if 0
-         if (rc == 0 && scon == mycon) {
-             ERROR("Service %s does not have a SELinux domain defined.\n", name_.c_str());
-             free(mycon);
-             free(fcon);
-             return false;
-         }
-+#endif
-         free(mycon);
-         free(fcon);
-         if (rc < 0) {
--- 
-2.11.0
-
-From d8c5b473bb055c91bf1b1602df9585e19a6e167b Mon Sep 17 00:00:00 2001
-From: Wang Xuerui <idontknw.wang@gmail.com>
-Date: Fri, 30 Sep 2016 21:01:05 +0800
-Subject: [PATCH] rootdir: HACK enable adbd always
-
-Change-Id: I16a01bd85f9daabeb3bc2b9342c081372a3e7b67
----
- rootdir/init.usb.rc | 2 +-
- 1 file changed, 1 insertion(+), 1 deletion(-)
-
-diff --git a/rootdir/init.usb.rc b/rootdir/init.usb.rc
-index 915d159a5..0666e4d63 100644
---- a/rootdir/init.usb.rc
-+++ b/rootdir/init.usb.rc
-@@ -15,7 +15,7 @@ on post-fs-data
- service adbd /sbin/adbd --root_seclabel=u:r:su:s0
-     class core
-     socket adbd stream 660 system system
--    disabled
-+    #disabled
-     seclabel u:r:adbd:s0
+ #define COMMAND_RETRY_TIMEOUT 5
  
- # adbd on at boot in emulator
--- 
-2.11.0
-
-From d1d210bedbf4eedfe5d8a82dfe1d446de9ab2350 Mon Sep 17 00:00:00 2001
-From: Dmitry Smirnov <divis1969@gmail.com>
-Date: Mon, 14 Nov 2016 23:30:38 +0300
-Subject: [PATCH] Remove CAP_SYS_NICE from surfaceflinger
-
-This capability causes surfaceflinger to be treated as a secure process
-(AT_SECURE) and linker ignores LD_PRELOAD and LD_SHIM_LIBS but we need these!
-
-Change-Id: Ie9451a970bf43ec864b626e4d3e646bd17869c67
----
- libcutils/fs_config.c | 3 ++-
- 1 file changed, 2 insertions(+), 1 deletion(-)
-
+-extern const char *ENV[32];
++extern const char *ENV[64];
+ extern bool waiting_for_exec;
+ extern int have_console;
+ extern std::string console_name;
 diff --git a/libcutils/fs_config.c b/libcutils/fs_config.c
 index 68cfcbe00..f19238606 100644
 --- a/libcutils/fs_config.c
@@ -110,78 +84,33 @@ index 68cfcbe00..f19238606 100644
  
      { 00750, AID_ROOT,      AID_ROOT,      0, "system/bin/uncrypt" },
      { 00750, AID_ROOT,      AID_ROOT,      0, "system/bin/install-recovery.sh" },
--- 
-2.11.0
-
-From fed3a8f8122ad4195a82cfeb5fe055cd79d920ae Mon Sep 17 00:00:00 2001
-From: Wang Xuerui <idontknw.wang@gmail.com>
-Date: Wed, 23 Mar 2016 23:03:24 +0800
-Subject: [PATCH] libnetutils: add MTK bits in ifc_utils.c
-
-Change-Id: I82f04b26feaaa3dfd14e1cceffbc116b4cef093a
----
- include/netutils/ifc.h  |  15 +++
- libnetutils/ifc_utils.c | 270 ++++++++++++++++++++++++++++++++++++++++++++++++
- 2 files changed, 285 insertions(+)
-
-diff --git a/include/netutils/ifc.h b/include/netutils/ifc.h
-index 3b272343d..a9a39eb70 100644
---- a/include/netutils/ifc.h
-+++ b/include/netutils/ifc.h
-@@ -61,6 +61,21 @@ extern int ifc_configure(const char *ifname, in_addr_t address,
- 
- extern in_addr_t prefixLengthToIpv4Netmask(int prefix_length);
- 
-+#ifdef MTK_HARDWARE
-+extern int ifc_is_up(const char *name, unsigned *isup);
-+extern int ifc_enable_allmc(const char *name);
-+extern int ifc_disable_allmc(const char *name);
-+extern int ifc_reset_connection_by_uid(int uid, int error);
-+extern int ifc_set_throttle(const char *ifname, int rxKbps, int txKbps);
-+extern int ifc_set_fwmark_rule(const char *ifname, int mark, int add);
-+extern int ifc_set_txq_state(const char *ifname, int state);
-+extern int ifc_ccmni_md_cfg(const char *ifname, int md_id);
-+struct uid_err {
-+    int appuid;
-+	int errorNum;
-+};
-+#endif
-+
- __END_DECLS
- 
- #endif /* _NETUTILS_IFC_H_ */
 diff --git a/libnetutils/ifc_utils.c b/libnetutils/ifc_utils.c
-index 7739cf459..713091498 100644
+index 7739cf459..888945ae9 100644
 --- a/libnetutils/ifc_utils.c
 +++ b/libnetutils/ifc_utils.c
-@@ -38,6 +38,10 @@
+@@ -38,6 +38,8 @@
  #include <linux/rtnetlink.h>
  #include <linux/sockios.h>
  
-+#ifdef MTK_HARDWARE
 +#include <linux/un.h>
-+#endif
 +
  #include "netutils/ifc.h"
  
  #ifdef ANDROID
-@@ -54,6 +58,10 @@
+@@ -54,6 +56,8 @@
  #if defined(__ANDROID__)
  /* SIOCKILLADDR is an Android extension. */
  #define SIOCKILLADDR 0x8939
 +
-+#ifdef MTK_HARDWARE
 +#define SIOCKILLSOCK 0x893a
-+#endif
  #endif
  
  static int ifc_ctl_sock = -1;
-@@ -737,3 +745,265 @@ ifc_configure(const char *ifname,
+@@ -737,3 +741,263 @@ ifc_configure(const char *ifname,
  
      return 0;
  }
 +
-+#ifdef MTK_HARDWARE
 +
 +#ifdef HAVE_ANDROID_OS
 +int ifc_reset_connection_by_uid(int uid, int error)
@@ -441,172 +370,63 @@ index 7739cf459..713091498 100644
 +    close(ctl_sock);
 +    return ret;
 +}
-+#endif
+diff --git a/libxlog/Android.mk b/libxlog/Android.mk
+new file mode 100644
+index 000000000..bf35d88d6
+--- /dev/null
++++ b/libxlog/Android.mk
+@@ -0,0 +1,13 @@
++LOCAL_PATH := $(call my-dir)
++
++include $(CLEAR_VARS)
++
++LOCAL_MODULE := libxlog
++LOCAL_MODULE_CLASS := SHARED_LIBRARIES
++LOCAL_SRC_FILES := xlog.c
++LOCAL_SHARED_LIBRARIES := liblog
++LOCAL_CFLAGS := -Wno-unused-parameter
++LOCAL_MULTILIB := both
++LOCAL_MODULE_TAGS := optional
++
++include $(BUILD_SHARED_LIBRARY)
+diff --git a/libxlog/xlog.c b/libxlog/xlog.c
+new file mode 100644
+index 000000000..34cf21ad7
+--- /dev/null
++++ b/libxlog/xlog.c
+@@ -0,0 +1,19 @@
++typedef __builtin_va_list va_list;
++#define va_start(ap, last) __builtin_va_start(ap, last)
++#define va_end(ap) __builtin_va_end(ap)
++
++/* Android N liblog has no bufID-variant vprint; route to the plain one.
++   Camera logs land in the MAIN buffer, which is fine. */
++extern int __android_log_vprint(int prio, const char *tag, const char *fmt,
++                                va_list ap);
++
++void __xlog_buf_printf(int bufID, int prio, const char *tag,
++                       const char *fmt, ...)
++{
++    va_list ap;
++
++    (void)bufID;
++    va_start(ap, fmt);
++    __android_log_vprint(prio, tag, fmt, ap);
++    va_end(ap);
++}
+diff --git a/rootdir/init.usb.rc b/rootdir/init.usb.rc
+index 915d159a5..0666e4d63 100644
+--- a/rootdir/init.usb.rc
++++ b/rootdir/init.usb.rc
+@@ -15,7 +15,7 @@ on post-fs-data
+ service adbd /sbin/adbd --root_seclabel=u:r:su:s0
+     class core
+     socket adbd stream 660 system system
+-    disabled
++    #disabled
+     seclabel u:r:adbd:s0
+ 
+ # adbd on at boot in emulator
 -- 
-2.11.0
-
-From b735ab9e276a0911dce01c1516b7ed3ef02675ed Mon Sep 17 00:00:00 2001
-From: Wang Xuerui <idontknw.wang@gmail.com>
-Date: Thu, 24 Mar 2016 01:55:24 +0800
-Subject: [PATCH] init: double the number of available environment variables
-
-[Ported to N by @xen0n.]
-
-Change-Id: Ie831be3e0ed907ef77d69cf47572088666bddf78
-
-Conflicts:
-	init/init.cpp
----
- init/init.cpp | 4 +++-
- init/init.h   | 2 +-
- 2 files changed, 4 insertions(+), 2 deletions(-)
-
-diff --git a/init/init.cpp b/init/init.cpp
-index e9da9586d..c40b86148 100755
---- a/init/init.cpp
-+++ b/init/init.cpp
-@@ -85,7 +85,9 @@ int have_console;
- std::string console_name = "/dev/console";
- static time_t process_needs_restart;
- 
--const char *ENV[32];
-+// xen0n: some MTK services (e.g. ril-daemon-mtk) require very large number
-+// of sockets, which can't be contained in 32 entries minus other variables.
-+const char *ENV[64];
- 
- bool waiting_for_exec = false;
- 
-diff --git a/init/init.h b/init/init.h
-index 345d442c0..f93d0c5ba 100644
---- a/init/init.h
-+++ b/init/init.h
-@@ -24,7 +24,7 @@ class Service;
- 
- #define COMMAND_RETRY_TIMEOUT 5
- 
--extern const char *ENV[32];
-+extern const char *ENV[64];
- extern bool waiting_for_exec;
- extern int have_console;
- extern std::string console_name;
--- 
-2.11.0
-
-From 0b86530f2da391a7821e089e1f1e85b51f6cca44 Mon Sep 17 00:00:00 2001
-From: Wang Xuerui <idontknw.wang@gmail.com>
-Date: Tue, 29 Sep 2015 13:16:33 +0800
-Subject: [PATCH] healthd: correctly report battery voltage on MTK kernels
-
-Change-Id: I0d183d028ec28a41d0c87f2e496863e5991013d2
----
- healthd/BatteryMonitor.cpp | 4 ++++
- 1 file changed, 4 insertions(+)
-
-diff --git a/healthd/BatteryMonitor.cpp b/healthd/BatteryMonitor.cpp
-index d2088eefb..947e83efd 100644
---- a/healthd/BatteryMonitor.cpp
-+++ b/healthd/BatteryMonitor.cpp
-@@ -228,7 +228,11 @@ bool BatteryMonitor::update(void) {
-     props.batteryLevel = mBatteryFixedCapacity ?
-         mBatteryFixedCapacity :
-         getIntField(mHealthdConfig->batteryCapacityPath);
-+#ifndef MTK_HARDWARE
-     props.batteryVoltage = getIntField(mHealthdConfig->batteryVoltagePath) / 1000;
-+#else
-+    props.batteryVoltage = getIntField(mHealthdConfig->batteryVoltagePath);
-+#endif
- 
-     if (!mHealthdConfig->batteryCurrentNowPath.isEmpty())
-         props.batteryCurrent = getIntField(mHealthdConfig->batteryCurrentNowPath) / 1000;
--- 
-2.11.0
-
-From d41237b082b098f934a06de382f37e05b0890107 Mon Sep 17 00:00:00 2001
-From: Adriano Martins <adrianomartins@gmail.com>
-Date: Tue, 13 Dec 2016 21:45:27 -0200
-Subject: [PATCH] Default to MTK
-
-Change-Id: I56e4b26d4f23e9a6604ea7798accf48adcac5d77
----
- healthd/BatteryMonitor.cpp | 4 ----
- include/netutils/ifc.h     | 2 --
- libnetutils/ifc_utils.c    | 6 ------
- 3 files changed, 12 deletions(-)
-
-diff --git a/healthd/BatteryMonitor.cpp b/healthd/BatteryMonitor.cpp
-index 947e83efd..d2088eefb 100644
---- a/healthd/BatteryMonitor.cpp
-+++ b/healthd/BatteryMonitor.cpp
-@@ -228,11 +228,7 @@ bool BatteryMonitor::update(void) {
-     props.batteryLevel = mBatteryFixedCapacity ?
-         mBatteryFixedCapacity :
-         getIntField(mHealthdConfig->batteryCapacityPath);
--#ifndef MTK_HARDWARE
-     props.batteryVoltage = getIntField(mHealthdConfig->batteryVoltagePath) / 1000;
--#else
--    props.batteryVoltage = getIntField(mHealthdConfig->batteryVoltagePath);
--#endif
- 
-     if (!mHealthdConfig->batteryCurrentNowPath.isEmpty())
-         props.batteryCurrent = getIntField(mHealthdConfig->batteryCurrentNowPath) / 1000;
-diff --git a/include/netutils/ifc.h b/include/netutils/ifc.h
-index a9a39eb70..e6deaa64c 100644
---- a/include/netutils/ifc.h
-+++ b/include/netutils/ifc.h
-@@ -61,7 +61,6 @@ extern int ifc_configure(const char *ifname, in_addr_t address,
- 
- extern in_addr_t prefixLengthToIpv4Netmask(int prefix_length);
- 
--#ifdef MTK_HARDWARE
- extern int ifc_is_up(const char *name, unsigned *isup);
- extern int ifc_enable_allmc(const char *name);
- extern int ifc_disable_allmc(const char *name);
-@@ -74,7 +73,6 @@ struct uid_err {
-     int appuid;
- 	int errorNum;
- };
--#endif
- 
- __END_DECLS
- 
-diff --git a/libnetutils/ifc_utils.c b/libnetutils/ifc_utils.c
-index 713091498..888945ae9 100644
---- a/libnetutils/ifc_utils.c
-+++ b/libnetutils/ifc_utils.c
-@@ -38,9 +38,7 @@
- #include <linux/rtnetlink.h>
- #include <linux/sockios.h>
- 
--#ifdef MTK_HARDWARE
- #include <linux/un.h>
--#endif
- 
- #include "netutils/ifc.h"
- 
-@@ -59,10 +57,8 @@
- /* SIOCKILLADDR is an Android extension. */
- #define SIOCKILLADDR 0x8939
- 
--#ifdef MTK_HARDWARE
- #define SIOCKILLSOCK 0x893a
- #endif
--#endif
- 
- static int ifc_ctl_sock = -1;
- static int ifc_ctl_sock6 = -1;
-@@ -746,7 +742,6 @@ ifc_configure(const char *ifname,
-     return 0;
- }
- 
--#ifdef MTK_HARDWARE
- 
- #ifdef HAVE_ANDROID_OS
- int ifc_reset_connection_by_uid(int uid, int error)
-@@ -1006,4 +1001,3 @@ int ifc_ccmni_md_cfg(const char *ifname, int md_id)
-     close(ctl_sock);
-     return ret;
- }
--#endif
--- 
-2.11.0
+2.53.0
 

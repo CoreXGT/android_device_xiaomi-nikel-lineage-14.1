@@ -2,6 +2,19 @@
 # Apply nikel out-of-tree fixes (see README.md).
 # Usage (sourceable):  cd device/xiaomi/nikel/patches && . apply.sh && cd -
 # Idempotent: patches already applied / webview already replaced are skipped.
+#
+# Covers ALL out-of-tree changes (everything outside vendor blobs + this
+# device tree):
+#   frameworks_av.patch          -> frameworks/av          (MTK audio porting)
+#   frameworks_native.patch      -> frameworks/native      (MTK libui/libgui bits)
+#   frameworks_opt_net_wifi.patch-> frameworks/opt/net/wifi (5GHz soft AP)
+#   hardware_libhardware.patch   -> hardware/libhardware   (MTK gps.h)
+#   system_core.patch            -> system/core            (MTK libxlog, ifc_utils, adbd)
+#   system_netd.patch            -> system/netd            (softap ap0, ipv6 rpfilter)
+#   system_sepolicy.patch        -> system/sepolicy        (socket ioctl reverts)
+#   system_core/0001-init-always-boot-permissive.patch -> system/core (user-build)
+#   cmsdk/..., audiofx/...       -> vendor/cmsdk, packages/apps/AudioFX
+#   webview.7z                   -> external/chromium-webview prebuilt
 
 # $0 is NOT the script when sourced — use BASH_SOURCE
 THIS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,6 +44,13 @@ apply_patch() { # <patch-file> <target-dir-relative>
 apply_patch "$THIS_DIR/cmsdk/0001-cmsdk-NetworkTraffic-proc-net-dev-fallback.patch" vendor/cmsdk
 apply_patch "$THIS_DIR/audiofx/0001-AudioFX-onStartCommand-guard.patch" packages/apps/AudioFX
 apply_patch "$THIS_DIR/system_core/0001-init-always-boot-permissive.patch" system/core
+apply_patch "$THIS_DIR/frameworks_av.patch" frameworks/av
+apply_patch "$THIS_DIR/frameworks_native.patch" frameworks/native
+apply_patch "$THIS_DIR/frameworks_opt_net_wifi.patch" frameworks/opt/net/wifi
+apply_patch "$THIS_DIR/hardware_libhardware.patch" hardware/libhardware
+apply_patch "$THIS_DIR/system_core.patch" system/core
+apply_patch "$THIS_DIR/system_netd.patch" system/netd
+apply_patch "$THIS_DIR/system_sepolicy.patch" system/sepolicy
 
 # webview prebuilt (binary, shipped compressed)
 WEBVIEW_OK_MD5="2021fea0adff94bffc9f9990b56077c6"

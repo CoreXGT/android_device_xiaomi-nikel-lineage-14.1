@@ -3876,12 +3876,12 @@ as patches in `device/xiaomi/nikel/patches/` and applied by `apply.sh`:
 | :--- | :--- | :--- |
 | `system_netd.patch` | `system/netd` | hostapd ctrl file `wlan0`→`ap0` in `SoftapController.cpp`; rpfilter tether rule non-fatal in `NatController.cpp` |
 | `frameworks_opt_net_wifi.patch` | `frameworks/opt/net/wifi` | 5 GHz soft AP: fixed fallback channel 36, no country-code gate |
-| `system_core.patch` | `system/core` | existing cm-14.1 device patches |
+| `system_core.patch` | `system/core` | MTK porting: `libxlog` shim, `ifc_utils` MTK extras + `ifc.h`, `ENV[64]`, surfaceflinger file-cap entry off, adbd enabled |
 | `system_core/0001-init-always-boot-permissive.patch` | `system/core` | init forced `user` builds into SELinux enforcing, hanging at the MI logo; make init always permissive (BUGFIXES.md §34) |
 | `system_sepolicy.patch` | `system/sepolicy` | SELinux rules |
-| `frameworks_av.patch` | `frameworks/av` | existing device patches |
-| `frameworks_native.patch` | `frameworks/native` | existing device patches |
-| `hardware_libhardware.patch` | `hardware/libhardware` | existing device patches |
+| `frameworks_av.patch` | `frameworks/av` | MTK audio porting (libmedia stubs/defaults, audioflinger capture-position) |
+| `frameworks_native.patch` | `frameworks/native` | MTK libui/mediatek dump tunnels, SensorManager, surfaceflinger DisplayUtils |
+| `hardware_libhardware.patch` | `hardware/libhardware` | MTK gps.h header |
 
 If you edit `system/netd` or `frameworks/opt/net/wifi` directly instead of
 applying the patches, regenerate the patch afterwards:

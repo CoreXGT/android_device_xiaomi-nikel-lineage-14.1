@@ -6,14 +6,40 @@ Apply them after `repo sync`, before `breakfast`/`make`.
 
 ## Apply
 
-```
-cd <build-root>
+Everything (this and the big project patches below) is applied by one
+script — run it from the build root after `repo sync`, before
+`breakfast`/`make`. It is idempotent: already-applied patches and the
+already-correct webview prebuilt are skipped.
 
+```
+cd device/xiaomi/nikel/patches && . apply.sh && cd -
+```
+
+What `apply.sh` covers (all out-of-tree changes, i.e. everything outside
+`vendor/xiaomi/nikel` blobs and this device tree):
+
+```
+frameworks_av.patch           -> frameworks/av           MTK audio porting
+frameworks_native.patch       -> frameworks/native       MTK libui/libgui bits
+frameworks_opt_net_wifi.patch -> frameworks/opt/net/wifi 5GHz soft AP
+hardware_libhardware.patch    -> hardware/libhardware    MTK gps.h
+system_core.patch             -> system/core             MTK libxlog, ifc_utils, adbd
+system_netd.patch             -> system/netd             softap ap0, ipv6 rpfilter
+system_sepolicy.patch         -> system/sepolicy         socket ioctl reverts
+system_core/0001-init-always-boot-permissive.patch -> system/core  (§34 user-build hang)
+cmsdk/0001-...                -> vendor/cmsdk            NetworkTraffic fallback (#18)
+audiofx/0001-...              -> packages/apps/AudioFX   onStartCommand guard (#15)
+webview.7z                    -> external/chromium-webview prebuilt (arm + arm64)
+```
+
+(Manual equivalent of two of them, if ever needed:)
+
+```bash
 # cmsdk — NetworkTraffic: /proc/net/dev fallback (status bar speed, bug #18)
-git -C vendor/cmsdk am <path-to-this-tree>/device/xiaomi/nikel/patches/cmsdk/0001-cmsdk-NetworkTraffic-proc-net-dev-fallback.patch
+git -C vendor/cmsdk am device/xiaomi/nikel/patches/cmsdk/0001-cmsdk-NetworkTraffic-proc-net-dev-fallback.patch
 
 # AudioFX — onStartCommand null guard (bug #15)
-git -C packages/apps/AudioFX am <path-to-this-tree>/device/xiaomi/nikel/patches/audiofx/0001-AudioFX-onStartCommand-guard.patch
+git -C packages/apps/AudioFX am device/xiaomi/nikel/patches/audiofx/0001-AudioFX-onStartCommand-guard.patch
 ```
 
 Then rebuild the affected modules (see BUGFIXES.md #15 and #18):
