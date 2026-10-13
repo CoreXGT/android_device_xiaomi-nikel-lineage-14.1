@@ -12,6 +12,8 @@
 #   system_core.patch            -> system/core            (MTK libxlog, ifc_utils, adbd)
 #   system_netd.patch            -> system/netd            (softap ap0, ipv6 rpfilter)
 #   system_sepolicy.patch        -> system/sepolicy        (socket ioctl reverts)
+#   system_sepolicy_zram.patch   -> system/sepolicy        (init may swapon zram0 — zRAM swap)
+#   frameworks_base_windowmanager.patch -> frameworks/base (WMG self-assignment removal)
 #   system_core/0001-init-always-boot-permissive.patch -> system/core (user-build)
 #   cmsdk/..., audiofx/...       -> vendor/cmsdk, packages/apps/AudioFX
 #   webview.7z                   -> external/chromium-webview prebuilt
@@ -51,6 +53,8 @@ apply_patch "$THIS_DIR/hardware_libhardware.patch" hardware/libhardware
 apply_patch "$THIS_DIR/system_core.patch" system/core
 apply_patch "$THIS_DIR/system_netd.patch" system/netd
 apply_patch "$THIS_DIR/system_sepolicy.patch" system/sepolicy
+apply_patch "$THIS_DIR/system_sepolicy_zram.patch" system/sepolicy
+apply_patch "$THIS_DIR/frameworks_base_windowmanager.patch" frameworks/base
 
 # webview prebuilt (binary, shipped compressed)
 WEBVIEW_OK_MD5="2021fea0adff94bffc9f9990b56077c6"

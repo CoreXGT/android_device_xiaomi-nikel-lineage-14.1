@@ -1,0 +1,21 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Codebuff <noreply@codebuff.com>
+Date: Tue, 13 Oct 2026 13:25:06 +0000
+Subject: [PATCH] base: remove recursive getWindowManagerService call in WMG
+
+getWindowManagerService() reassigns sWindowManagerService to itself from
+its own getter — drop the redundant self-assignment.
+
+---
+diff --git a/core/java/android/view/WindowManagerGlobal.java b/core/java/android/view/WindowManagerGlobal.java
+index 11734d31388..d3c76348265 100644
+--- a/core/java/android/view/WindowManagerGlobal.java
++++ b/core/java/android/view/WindowManagerGlobal.java
+@@ -167,7 +167,6 @@ public final class WindowManagerGlobal {
+                 sWindowManagerService = IWindowManager.Stub.asInterface(
+                         ServiceManager.getService("window"));
+                 try {
+-                    sWindowManagerService = getWindowManagerService();
+                     ValueAnimator.setDurationScale(sWindowManagerService.getCurrentAnimatorScale());
+                 } catch (RemoteException e) {
+                     throw e.rethrowFromSystemServer();

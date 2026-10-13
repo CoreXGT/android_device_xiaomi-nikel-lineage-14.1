@@ -51,6 +51,7 @@ PRODUCT_COPY_FILES += \
     $(LOCAL_PATH)/rootdir/fstab.mt6797:root/fstab.mt6797 \
     $(LOCAL_PATH)/rootdir/init.modem.rc:root/init.modem.rc \
     $(LOCAL_PATH)/rootdir/init.mt6797.rc:root/init.mt6797.rc \
+    $(LOCAL_PATH)/rootdir/init.zram.rc:root/init.zram.rc \
     $(LOCAL_PATH)/rootdir/init.mt6797.usb.rc:root/init.mt6797.usb.rc \
     $(LOCAL_PATH)/rootdir/init.nikel-fp.rc:system/etc/init/nikel-fp.rc \
     $(LOCAL_PATH)/rootdir/meta_init.modem.rc:root/meta_init.modem.rc \

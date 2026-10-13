@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Codebuff <noreply@codebuff.com>
+Date: Tue, 13 Oct 2026 13:25:06 +0000
+Subject: [PATCH] sepolicy: allow init to swapon zram0 (nikel zRAM swap)
+
+init.zram.rc (device tree) sets /sys/block/zram0/disksize and runs
+mkswap+swapon on /dev/block/zram0, which carries the ram_device label.
+Give init rw_file_perms on it; the disksize write is already covered
+by the existing "allow init sysfs_type:file w_file_perms".
+
+---
+diff --git a/init.te b/init.te
+index 9bc78d1..1296c02 100644
+--- a/init.te
++++ b/init.te
+@@ -162,9 +162,12 @@ allow init self:capability sys_boot;
+ allow init sysfs_type:dir r_dir_perms;
+ allow init sysfs_type:file w_file_perms;
+ 
+-# disksize
++# disksize (write sudah tercakup oleh allow init sysfs_type:file w_file_perms)
+ allow init sysfs_zram:file getattr;
+ 
++# zRAM swap: mkswap + swapon /dev/block/zram0 (device tree nikel)
++allow init ram_device:blk_file rw_file_perms;
++
+ # Transitions to seclabel processes in init.rc
+ domain_trans(init, rootfs, adbd)
+ domain_trans(init, rootfs, healthd)
