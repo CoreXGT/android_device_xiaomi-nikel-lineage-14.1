@@ -1,0 +1,5 @@
+service ipifix /system/bin/chmod 0666 /dev/audio_ipi /dev/scp
+    class core
+    user root
+    group root
+    oneshot

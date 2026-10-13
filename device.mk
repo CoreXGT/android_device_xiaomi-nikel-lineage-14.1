@@ -65,6 +65,12 @@ PRODUCT_COPY_FILES += \
 PRODUCT_COPY_FILES += \
     $(LOCAL_PATH)/rootdir/init.sensor-fix.rc:system/etc/init/sensor-fix.rc
 
+# IPI permission fix (audioserver uid 1041 must open /dev/audio_ipi;
+# stock node is 0600 root:root, MIUI uses 0640 media:media but LOS
+# audioserver is neither — see CALL_CRASH.md SESI-29)
+PRODUCT_COPY_FILES += \
+    $(LOCAL_PATH)/rootdir/ipifix.rc:system/etc/init/ipifix.rc
+
 # TWRP
 PRODUCT_COPY_FILES += \
     $(LOCAL_PATH)/recovery/etc/twrp.fstab:recovery/root/etc/twrp.fstab
@@ -109,3 +115,10 @@ $(call inherit-product, device/xiaomi/nikel/common.mk)
 
 # Vendor
 $(call inherit-product, vendor/xiaomi/nikel/nikel-vendor.mk)
+
+# Patched 32-bit audio HAL (v2, md5 227be8c8: BGSound On/Off/Config disabled
+# + SpeechPilot 2F26->2F00). Deliberately placed AFTER the vendor inherit so
+# it overrides vendor/xiaomi/nikel's stock blob (ORIG e0ca7239) for
+# system/lib/hw only; lib64 stays stock. See CALL_CRASH.md SESI-25/26/36.
+PRODUCT_COPY_FILES += \
+    $(LOCAL_PATH)/prebuilt/audio.primary.mt6797.so:system/lib/hw/audio.primary.mt6797.so
