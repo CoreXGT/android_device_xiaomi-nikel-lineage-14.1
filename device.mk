@@ -11,6 +11,7 @@ TARGET_OTA_ASSERT_DEVICE := nikel
 
 PRODUCT_PACKAGES += \
    libmtk_symbols \
+   libmtk_libc_n \
    libstlport
    
 # Kernel
@@ -37,6 +38,18 @@ PRODUCT_COPY_FILES += \
 PRODUCT_COPY_FILES += \
 	$(LOCAL_PATH)/configs/media_codecs.xml:system/etc/media_codecs.xml \
 	$(LOCAL_PATH)/configs/media_profiles.xml:system/etc/media_profiles.xml
+
+# Patched 32-bit audio HAL (v2, md5 227be8c8: BGSound On/Off/Config bx-lr
+# + SpeechPilot 2F26->2F00). It replaces the stock blob the vendor tree
+# ships (md5 e0ca7239); lib64 stays stock. See CALL_CRASH.md SESI-25/26/36.
+#
+# IMPORTANT: this entry has to come BEFORE the vendor inherit further down.
+# build/core/Makefile gives the FIRST PRODUCT_COPY_FILES entry for a
+# destination the copy rule and ignores every later one ("PRODUCT_COPY_FILES
+# ... ignored."), so on cm-13.0 an override placed after the vendor inherit
+# is silently dropped and the stock vendor blob ends up in the ROM.
+PRODUCT_COPY_FILES += \
+    $(LOCAL_PATH)/prebuilt/audio.primary.mt6797.so:system/lib/hw/audio.primary.mt6797.so
 
 # Keyboard layout
 PRODUCT_COPY_FILES += \
@@ -117,9 +130,5 @@ $(call inherit-product, device/xiaomi/nikel/common.mk)
 # Vendor
 $(call inherit-product, vendor/xiaomi/nikel/nikel-vendor.mk)
 
-# Patched 32-bit audio HAL (v2, md5 227be8c8: BGSound On/Off/Config disabled
-# + SpeechPilot 2F26->2F00). Deliberately placed AFTER the vendor inherit so
-# it overrides vendor/xiaomi/nikel's stock blob (ORIG e0ca7239) for
-# system/lib/hw only; lib64 stays stock. See CALL_CRASH.md SESI-25/26/36.
-PRODUCT_COPY_FILES += \
-    $(LOCAL_PATH)/prebuilt/audio.primary.mt6797.so:system/lib/hw/audio.primary.mt6797.so
+# The patched 32-bit audio HAL is installed above, BEFORE this vendor
+# inherit — see the comment there.
