@@ -1,7 +1,7 @@
 # Nikel (Redmi Note 4 MTK / MT6797) — Bug Tracker & Fix Documentation
 
-Target ROM: LineageOS 14.1 (cm-14.1), device tree `device/xiaomi/nikel`,
-vendor blobs `vendor/xiaomi/nikel`.
+Target ROM: LineageOS 14.1 (cm-14.1) or LineageOS 13.0 (cm-13.0), device tree
+`device/xiaomi/nikel`, vendor blobs `vendor/xiaomi/nikel`.
 Purpose: anyone picking up this ROM should be able to verify fixes that are
 already in and attack the remaining bugs without re-discovering anything.
 
@@ -3883,6 +3883,108 @@ as patches in `device/xiaomi/nikel/patches/` and applied by `apply.sh`:
 | `frameworks_native.patch` | `frameworks/native` | MTK libui/mediatek dump tunnels, SensorManager, surfaceflinger DisplayUtils |
 | `hardware_libhardware.patch` | `hardware/libhardware` | MTK gps.h header |
 
+### The cm-13.0 (Android 6.0.1) patch set
+
+The patch set above was written against **cm-14.1**. The platform source can
+also be **cm-13.0** (`PLATFORM_VERSION := 6.0.1`), in which case
+`patches/cm13/` is applied instead — `apply.sh` detects the platform and
+picks the set. The cm-13.0 set, and what is deliberately not ported, is
+documented in [patches/cm13/README.md](patches/cm13/README.md).
+
+### 36. Bootloop on cm-13.0: every process dies, init reboots into recovery
+
+**Symptom** — the ROM boots, the kernel comes up, `init` starts the
+services, and then *every* one of them dies immediately:
+
+```
+init: Service 'media' (pid 378) exited with status 1
+init: Service 'surfaceflinger' (pid 377) exited with status 1
+init: Service 'servicemanager' (pid 371) exited with status 1
+init: Service 'lmkd' (pid 439) exited with status 1
+init: critical process 'lmkd' exited 4 times in 4 minutes; rebooting into recovery mode
+```
+
+`init` then tears the rest of the services down and reboots into recovery.
+The device is stuck in a bootloop.
+
+**Root cause** — `rootdir/init.mt6797.rc` does
+
+```
+on init
+    export LD_PRELOAD "libmtk_symbols.so"
+```
+
+so *every* process init starts preloads `libmtk_symbols.so`. That library
+depends on `libicuuc.so`, and the **vendor** `libicuuc.so` (the platform
+builds no 32-bit ICU on cm-13.0, so the vendor blob wins the destination)
+was built against an Android 7.1 bionic and references symbols with the
+version tag **`LIBC_N`**:
+
+```
+$ nm -D --undefined-only system/lib/libicuuc.so | grep LIBC_N
+         U __aeabi_memclr@LIBC_N
+         U __aeabi_memcpy@LIBC_N
+         ...
+```
+
+The cm-13.0 platform libc only provides the versions `LIBC` and
+`LIBC_PRIVATE`, so the linker cannot resolve them:
+
+```
+CANNOT LINK EXECUTABLE: cannot locate symbol "__aeabi_memcpy"
+referenced by "/system/lib/libicuuc.so"
+```
+
+A failing preload is fatal for the process, hence the exit status 1 for
+every service. (On cm-14.1 this does not happen: that platform's linker
+sanitizes `LD_PRELOAD`, and its libc does have the `LIBC_N` version.)
+
+**Twelve vendor blobs are affected** — the OMX/video codec stack
+(`libMtkOmxCore/Venc/VdecEx`, `libvcodecdrv`, `libvcodec_utility`),
+`librrc`, `libcurl-ss` and `libicuuc` (both arches). The MTK RIL daemon
+does not need them, so telephony survives; video encoding does not.
+
+**Fix** — `libmtk_symbols/libc_n_shim.c` + `libc_n.version` build a new
+`libmtk_libc_n` library that re-exports those symbols under the `LIBC_N`
+version name (a linker version script), forwarding to the real libc
+entry points. `init.mt6797.rc` now preloads it first:
+
+```
+export LD_PRELOAD "libmtk_libc_n.so libmtk_symbols.so"
+```
+
+Only the vendor blobs ask for the `LIBC_N` flavour; the platform's own
+libraries keep using the `@LIBC_PRIVATE` definitions from `libc.so`.
+
+Three device-tree files differ between the platforms and are selected in
+`BoardConfig.mk`:
+
+| file | cm-14.1 | cm-13.0 | difference |
+| :--- | :------ | :------ | :--------- |
+| `ril/telephony/java/…/MediaTekRIL.java` | ✅ | `ril-cm13/` | cm-13.0's `RIL` has no slot argument on `processUnsolicited()`/`processSolicited()` and passes `radioTechnology`/`profile`/`authType` to `setupDataCall()` as Strings |
+| `ril/telephony/java/…/MtkEccList.java` | ✅ | `ril-cm13/` | unchanged, kept next to the RIL |
+| `patches/*.patch` vs `patches/cm13/*.patch` | ✅ | `patches/cm13/` | see above |
+
+Three cm-14.1-only resources are referenced by the device tree's overlays.
+aapt refuses an overlay that names a resource the base package does not
+have ("Resource at … appears in overlay but not in the base package"), which
+fails the `framework-res` build. `patches/cm13/0003` and `0004` declare
+`config_nightDisplayAvailable` and `config_gesture_settings_enabled` so the
+overlays are accepted; neither feature exists on Android 6.0.1 and nothing
+reads them.
+
+`device/xiaomi/nikel/libmtk_symbols/mtk_ui.cpp` needed `#include <string>`
+for the `std::string` in the `GraphicBuffer` ctor shim — cm-14.1 pulled
+`<string>` in transitively, cm-13.0 does not, and the compile failed with
+`'std::string' has not been declared`.
+
+`device/xiaomi/nikel/media.mk` copied the four configurable-audio-policy
+files from `frameworks/av/services/audiopolicy/config/`. That directory
+only exists from Android 7 on, so on cm-13.0 the build aborted with
+`No rule to make target 'frameworks/av/services/audiopolicy/config/audio_policy_volumes.xml'`.
+They are now copied only when `PLATFORM_VERSION != 6.0.1`; cm-13.0 uses the
+legacy `audio_policy.conf` and never reads them.
+
 If you edit `system/netd` or `frameworks/opt/net/wifi` directly instead of
 applying the patches, regenerate the patch afterwards:
 
@@ -4002,6 +4104,147 @@ firmware, so the modem image is not the differentiator either.
 ---
 
 ---
+
+
+### 37. Bootloop on cm-13.0: surfaceflinger SIGSEGV while allocating its first buffer
+
+**Symptom** — with the preload fixed the services come up, but the screen
+stays on the MI logo and the boot never reaches the launcher.
+
+```
+*** *** *** *** *** *** *** *** *** *** *** *** *** *** *** ***
+LineageOS Version: '13.0-20261110-UNOFFICIAL-nikel'
+ABI: 'arm64'
+pid: 1701, tid: 1701, name: surfaceflinger  >>> /system/bin/surfaceflinger <<<
+signal 11 (SIGSEGV), code 1 (SEGV_MAPERR), fault addr 0x0
+    pc   0000000000000000
+backtrace:
+    #00 pc 0000000000000000  <unknown>
+    #01 pc 0000000000001518  /system/lib64/libmtk_symbols.so (_ZN7android13GraphicBufferC1Ejjij+312)
+    #02 pc 0000000000062ec0  /system/lib64/libgui.so (GraphicBufferAlloc::createGraphicBuffer)
+    #03 pc 000000000005c238  /system/lib64/libgui.so (BufferQueueProducer::allocateBuffers)
+    #05 pc 000000000002cf90  /system/lib64/libsurfaceflinger.so (SurfaceFlinger::init)
+```
+
+**Root cause** — `libmtk_symbols/mtk_ui.cpp` shims the `GraphicBuffer`
+constructor for the MTK blobs. It defined the **four-argument**
+constructor (which cm-13.0's `libui` exports as well, so the shim shadowed
+it) and then called the **cm-14.1** five-argument flavour that carries a
+`std::string` requestorName:
+
+```c
+func = dlsym(RTLD_NEXT, "_ZN7android13GraphicBufferC1EjjijNSt3__112basic_string...");
+func(instance, ...);          // <-- func is NULL on cm-13.0 -> pc = 0x0
+```
+
+cm-13.0's `libui` has no such symbol, so `dlsym` returned NULL and the
+call jumped to address 0.
+
+**Fix** — the shim now provides *both* flavours and forwards each to
+whichever one the platform actually has:
+
+| shim provides | cm-14.1 | cm-13.0 |
+| :--- | :--- | :--- |
+| 4-arg `GraphicBuffer(w,h,format,usage)` | -> real 4-arg | -> real 4-arg (via `RTLD_NEXT`, so the preload copy does not call itself) |
+| 5-arg `GraphicBuffer(w,h,format,usage,requestorName)` | -> real 5-arg | -> real 4-arg |
+
+The MTK blobs need both: the MIUI 6.0 era ones the 4-argument one, the
+7.1 era ones (e.g. `libMtkOmxVenc.so`) the 5-argument one.
+
+### 38. Bootloop on cm-13.0: the zygote spins in "Preloading classes..."
+
+**Symptom** — after the two fixes above the services come up
+(`surfaceflinger` running), but the boot still never finishes: the boot
+animation keeps running and `system_server` never starts.
+
+```
+D/Zygote  ( 375): begin preload
+I/Zygote  ( 375): Preloading classes...        <- and then nothing, forever
+```
+
+The zygote burns 100 % CPU. A native backtrace (`debuggerd -b <pid>`)
+shows where:
+
+```
+"main" sysTid=374
+  #00 pc 0000000000001548  /system/lib64/libmtk_symbols.so (ucnv_open_55)
+  #01 pc 000000000002d6ac  /system/lib64/libjavacore.so
+  #02 pc 00000000731a4d24  system@framework@boot.oat
+```
+
+**Root cause** — `libmtk_symbols/icu55.c` provides the ICU-55 flavoured
+names (`ucnv_open_55` and friends) for MTK blobs built against ICU 55.
+That is only needed where the platform ICU is *newer* than 55 (cm-14.1
+ships ICU 58). cm-13.0 already ships **ICU 55.1**, which exports
+`ucnv_open_55` itself. Because the shim lives in the preloaded library it
+shadows the platform's own `ucnv_open_55`, and the shim's call to the
+unsuffixed `ucnv_open` resolves straight back to the shadowed symbol — an
+infinite recursion.
+
+**Fix** — `icu55.c` is only compiled when the platform ICU is not ICU 55:
+
+```make
+ifeq ($(PLATFORM_VERSION),6.0.1)
+    # cm-13.0: the platform ICU already provides the ICU-55 symbols.
+else
+    LOCAL_SRC_FILES += icu55.c
+endif
+```
+
+### 39. cm-13.0: the MTK RIL cannot be loaded
+
+```
+E/RILD: dlopen failed: cannot locate symbol "ifc_ccmni_md_cfg"
+        referenced by "/system/lib64/mtk-ril.so"
+```
+
+cm-13.0's `libnetutils` provides `ifc_disable`, `ifc_remove_default_route`
+and `ifc_reset_connections`, but not the two MTK specific ones the RIL
+needs. `patches/cm13/0009-core-ifc-mtk-extras.patch` adds them (ported
+from the cm-14.1 `system_core.patch`) to `libnetutils/ifc_utils.c` plus
+their declarations in `include/netutils/ifc.h`.
+
+
+### 40. A hand-written patch with a wrong hunk count silently truncated the vendor build file
+
+**Symptom** — the build died immediately, before compiling anything:
+
+```
+build/core/node_fns.mk:185: *** unterminated call to function 'filter-out': missing ')'.  Stop.
+```
+
+The message points at `node_fns.mk` (where `filter-out` is *defined*), so
+it reads like a make parsing problem in `nikel-vendor-blobs.mk`. It is
+not: the file itself was truncated.
+
+**Root cause** — the patch was written by hand and its hunk header did
+not match the hunk body:
+
+```
+@@ -1,2 +1,13 @@          <- declares 13 new lines
+...
++	$(filter-out $(VENDOR_ICU_BLACKLIST), \
++		$(call find-copy-subdir-files,*,vendor/xiaomi/nikel/system/,system/))
+```
+
+The hunk carried **14** new lines. `git apply` counts the lines the
+header promises, so it consumed the first 13 and treated the 14th as
+trailing garbage — it silently dropped the
+`$(call find-copy-subdir-files, ...)` line. The resulting file ended
+with an unterminated `$(filter-out ...` call, which is what make
+complained about.
+
+The same content with the correct header (`@@ -1,2 +1,14 @@`) applies
+cleanly and produces the complete file.
+
+**Fix** — the patch is now generated from `git diff` instead of being
+typed out, so the hunk counts are always exact, and the `filter-out`
+call is written on a single line so that a lost continuation line
+cannot break it a second time.
+
+**Lesson** — when a build error names a *framework* file but the real
+problem is in a project file, look at the project file's **last lines**
+first. A truncated file looks syntactically fine until the very end.
 
 ## 35. Full builds silently dropped consumerir.mt6797.so from the image — the 2026-10-05 OTA hung at the boot animation (2026-10-06)
 
