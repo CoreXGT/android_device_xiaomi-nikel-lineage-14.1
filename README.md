@@ -1,4 +1,4 @@
-# Device Tree — Xiaomi Redmi Note 4 (MediaTek) "nikel" — LineageOS 14.1
+# Device Tree — Xiaomi Redmi Note 4 (MediaTek) "nikel" — LineageOS 13.0 / 14.1
 
 Fork of bju2000's device tree, maintained by CoreXGT.
 **Bug tracker and detailed fix documentation: see [BUGFIXES.md](BUGFIXES.md).**
@@ -25,6 +25,30 @@ Fork of bju2000's device tree, maintained by CoreXGT.
 | Bluetooth               | 4.2                               |
 | Release Date            | January 2017                      |
 
+## Platform support
+
+This tree builds against **two** platform sources. `apply.sh` detects which
+one is in the build root and applies the matching patch set, and the device
+tree picks the matching copies of the few files that differ.
+
+| Platform source | Android | `PLATFORM_VERSION` | patch set |
+| :-------------- | :------ | :----------------- | :-------- |
+| `cm-13.0`       | 6.0.1   | `6.0.1`            | `patches/cm13/*.patch` |
+| `cm-14.1`       | 7.1.2   | `7.1.2`            | `patches/*.patch` |
+
+Nothing is published for nikel on either branch, so the platform source is
+a plain LineageOS checkout — the device tree, the vendor blobs and the
+patch set are what make it work.
+
+Files that differ between the two platforms:
+
+* `ril/` vs `ril-cm13/` — the `MediaTekRIL` subclass. cm-13.0's `RIL` base
+  class has no slot argument on `processUnsolicited()`/`processSolicited()`
+  and passes `radioTechnology`/`profile`/`authType` to `setupDataCall()` as
+  Strings. `BoardConfig.mk` selects the right copy via `BOARD_RIL_CLASS`.
+* `patches/cm13/` — see [patches/cm13/README.md](patches/cm13/README.md)
+  for the per-patch rationale and for what is deliberately not ported.
+
 ## Build Instructions
 
 ```bash
@@ -36,8 +60,9 @@ sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-m
   libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc \
   zip zlib1g-dev openjdk-8-jdk python git-lfs pigz
 
-# Get the LineageOS 14.1 source
-repo init -u git://github.com/LineageOS/android.git -b cm-14.1
+# Get the LineageOS source (13.0 = Android 6.0.1, or 14.1 = Android 7.1.2)
+repo init -u git://github.com/LineageOS/android.git -b cm-13.0   # Android 6
+# repo init -u git://github.com/LineageOS/android.git -b cm-14.1 # Android 7
 repo sync
 
 # Clone device tree and vendor blobs
@@ -46,6 +71,7 @@ git clone https://github.com/CoreXGT/android_device_xiaomi-nikel-lineage-14.1.gi
 git clone https://github.com/CoreXGT/android_vendor_xiaomi_nikel.git -b cm-14.1 vendor/xiaomi/nikel
 
 # Apply out-of-tree patches (netd, frameworks/opt/net/wifi, etc.)
+# apply.sh picks the patch set that matches the platform source it finds.
 cd device/xiaomi/nikel/patches && . apply.sh && cd -
 
 # Prepare for build
@@ -116,17 +142,44 @@ ps aux | grep jack-server | grep -o "\-Xmx[0-9a-z]*"
   MAKEFLAGS="-j4"` does **not** cap `mka`/`brunch` (they pass an explicit
   `-j$(nproc)` on the command line, which overrides MAKEFLAGS). Extra `-j`
   arguments appended to `mka` do work — `mka bacon -j4` builds with 4 jobs.
-- **Jack**: on newer JDKs the Jack server needs TLSv1/1.1 re-enabled in
-  `java.security` and a manual start:
-  `jack-admin start-server -Djack.home=$HOME/.jack-server -Xmx6g -cp ...`
-  (do NOT set `ANDROID_COMPILE_WITH_JACK=false` — it breaks the build).
+- **Jack**: cm-13.0 and cm-14.1 both compile **every** java module with Jack
+  (`build/core/combo/javac.mk` sets `ANDROID_COMPILE_WITH_JACK := true`), so a
+  Jack server has to be reachable. `prebuilts/sdk/tools/jack` starts one
+  itself when it cannot connect, so the build works without any manual
+  step — but the server it launches uses the heap from
+  `ANDROID_JACK_VM_ARGS`/`JACK_SERVER_VM_ARGUMENTS`.
+  A **manual** `jack-admin start-server` fails with
+  `JACK_JAR: unbound variable` unless `JACK_JAR` is exported, because
+  `jack-admin` runs with `set -o nounset` and only the build system sets
+  that variable:
+  ```bash
+  export JACK_JAR=$PWD/out/host/linux-x86/framework/jack.jar
+  export JACK_VM_COMMAND="java -jar $PWD/out/host/linux-x86/framework/jack-launcher.jar"
+  ./prebuilts/sdk/tools/jack-admin start-server
+  ```
+  Do NOT set `ANDROID_COMPILE_WITH_JACK=false` — it breaks the build.
+- **curl**: `prebuilts/sdk/tools/jack` calls `curl --no-proxy`, which needs
+  curl ≥ 7.86 (Ubuntu 20.04+). On older curl the Jack compile fails with
+  `ERROR: Communication error with Jack server (2)`; the workaround is to
+  use `--noproxy` instead.
 - **TMPDIR**: some build steps need >2 GB in /tmp — set `export TMPDIR=<big dir>`.
 - **ccache**: enabled by default in cm-14.1; point it somewhere persistent with
   `export CCACHE_DIR=<path>`.
-- **Host toolchain**: `check_radio_versions.py` is Python 2 and flex-2.5.39
-  breaks on glibc ≥ 2.27 — use
-  `export PATH=<python2>/bin:$PATH LC_ALL=C`. Note: the latest build used
-  Ubuntu 18.04 LTS, so this problem was not encountered there.
+- **Host toolchain**: cm-13.0's build helpers are **Python 2** — the logtags
+  generator (`build/tools/java-event-log-tags.py`) and
+  `check_radio_versions.py` are Python 2 scripts. With `python` pointing at
+  Python 3 the build dies with
+  `TypeError: cannot use a string pattern on a bytes-like object` while
+  generating `*LogTags.java`. Use `export PATH=<python2>/bin:$PATH` (Ubuntu
+  18.04's `python` is still 2.7). `flex-2.5.39` also breaks on glibc ≥ 2.27.
+- **Maven**: cm-13.0's `vendor/cm/ambientsdk` module is fetched at build time
+  with `mvn` (`com.cyngn.ambient:ambientsdk:1.6.0-147069776-39fe2d07` from
+  `https://repo1.maven.org/maven2`). Without `mvn` the build fails with
+  `Error 127` on that step. Either install Maven, or pre-place the AAR:
+  ```bash
+  curl -sSLo out/target/common/obj/JAVA_LIBRARIES/ambientsdk_intermediates/com.cyngn.ambient.ambientsdk-1.6.0-147069776-39fe2d07.aar \
+    https://repo1.maven.org/maven2/com/cyngn/ambient/ambientsdk/1.6.0-147069776-39fe2d07/ambientsdk-1.6.0-147069776-39fe2d07.aar
+  ```
   
 
 ## Feature Status
@@ -156,6 +209,37 @@ It is required: the SamarV bd04 kernel delivers no sensor data and the
 MIUI bd13 kernel NACKs the front camera. Building the ROM always packs
 this file into boot.img — do NOT replace it with a kernel built from
 LOS source (front camera breaks again). Details: BUGFIXES.md #12.
+
+Note that this is the **stock kernel of the phone** (the phone ships
+MIUI on Android 6.0.1). It has nothing to do with the Android version of
+the ROM built from this tree: the same prebuilt kernel is used by the
+cm-13.0 (Android 6) and the cm-14.1 (Android 7) builds. A prebuilt
+kernel is only missing something if `kernel/<vendor>/<device>` source
+exists — then the build compiles the kernel instead. Deleting
+`prebuilt/kernel` without providing a replacement does not build:
+`device.mk` still copies it into `boot.img` and make aborts with
+`No rule to make target 'device/xiaomi/nikel/prebuilt/kernel'`.
+
+## Audio HAL note
+
+`prebuilt/audio.primary.mt6797.so` is the **32-bit** MTK audio HAL. It is
+the MIUI stock blob (`md5 e0ca7239…`, same file the vendor tree ships)
+with **13 bytes patched**:
+
+| offset | stock | patched | effect |
+| :----- | :---- | :------ | :----- |
+| `0x0d94e8` | `e92d4070` | `e12fff1e` | `push {r4,lr}` → `bx lr` — the "BGSound On/Off/Config" path returns immediately |
+| `0x0d9a84` | `26` | `00` | SpeechPilot `2F26` → `2F00` |
+| `0x0db338` | `e92d40f0` | `e12fff1e` | `bx lr` (BGSound) |
+| `0x0dba9c` | `e92d40f0` | `e12fff1e` | `bx lr` (BGSound) |
+
+It is installed through `PRODUCT_COPY_FILES` after the vendor inherit, so it
+overrides `system/lib/hw/audio.primary.mt6797.so` only; `lib64` stays
+stock. The same blob is used by the cm-13.0 and the cm-14.1 build — it is
+an Android 6 era (MIUI) binary, not an Android 7 one.
+
+Note that this patch does **not** fix the MD3 call crash (BUGFIXES.md #8);
+that one lives in the modem firmware.
 
 ## Known Issues (details in BUGFIXES.md)
 
