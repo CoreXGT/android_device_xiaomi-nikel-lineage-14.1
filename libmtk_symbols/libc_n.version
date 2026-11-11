@@ -1,0 +1,40 @@
+/*
+ * Version script for libmtk_libc_n.
+ *
+ * The MTK vendor blobs were built against two different bionic versions:
+ *
+ *  - the Android 7.1 era blobs reference symbols with the version tag
+ *    "LIBC_N"   (e.g. __aeabi_memcpy@LIBC_N) — those are in the first
+ *    version node below.  cm-13.0's libc only knows "LIBC" and
+ *    "LIBC_PRIVATE", so without this node the linker cannot resolve them
+ *    and the whole library fails to load.
+ *
+ *  - the Android 5/6 era blobs reference __pthread_gettid with the
+ *    "LIBC_PRIVATE" version.  cm-13.0's libc exports that function as a
+ *    *public* @LIBC symbol, so the versioned lookup fails; without the
+ *    second node libvcodecdrv.so cannot be loaded, which in turn breaks
+ *    libGLES_mali.so and leaves the device without any OpenGL ES.
+ */
+LIBC_N {
+    global:
+        __aeabi_memclr;
+        __aeabi_memclr4;
+        __aeabi_memclr8;
+        __aeabi_memcpy;
+        __aeabi_memcpy4;
+        __aeabi_memcpy8;
+        __aeabi_memmove;
+        __aeabi_memmove4;
+        __aeabi_memset;
+        __aeabi_memset4;
+        __aeabi_memset8;
+        __fread_chk;
+        __fwrite_chk;
+        __write_chk;
+        __gnu_Unwind_Find_exidx;
+};
+
+LIBC_PRIVATE {
+    global:
+        __pthread_gettid;
+} LIBC_N;
