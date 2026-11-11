@@ -1,0 +1,28 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: CoreXGT <aulia.ikbal09@gmail.com>
+Date: Tue, 10 Nov 2026 21:40:00 +0700
+Subject: [PATCH] base: remove recursive getWindowManagerService call in WMG
+
+cm-13.0 port of the cm-14.1 patch of the same name.
+
+getWindowManagerService() reassigns sWindowManagerService to itself from
+its own getter — drop the redundant self-assignment.
+
+Change-Id: I0000000000000000000000000000000000000003
+---
+ core/java/android/view/WindowManagerGlobal.java | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/core/java/android/view/WindowManagerGlobal.java b/core/java/android/view/WindowManagerGlobal.java
+--- a/core/java/android/view/WindowManagerGlobal.java
++++ b/core/java/android/view/WindowManagerGlobal.java
+@@ -135,7 +135,6 @@ public final class WindowManagerGlobal {
+                 sWindowManagerService = IWindowManager.Stub.asInterface(
+                         ServiceManager.getService("window"));
+                 try {
+-                    sWindowManagerService = getWindowManagerService();
+                     ValueAnimator.setDurationScale(sWindowManagerService.getCurrentAnimatorScale());
+                 } catch (RemoteException e) {
+                     Log.e(TAG, "Failed to get WindowManagerService, cannot set animator scale", e);
+--
+2.53.0

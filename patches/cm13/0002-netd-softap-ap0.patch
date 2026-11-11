@@ -1,0 +1,40 @@
+From c1e5b75f3d1b79f4caad046ed1d432757a5e1f23 Mon Sep 17 00:00:00 2001
+From: CoreXGT <aulia.ikbal09@gmail.com>
+Date: Thu, 10 Sep 2026 01:49:18 +0700
+Subject: [PATCH] netd: softap ctrl unix file wlan0 -> ap0 (cm-13.0)
+
+cm-13.0 port of the cm-14.1 patch of the same name.
+
+The MTK supplicant drives the AP interface as "ap0", not "wlan0", so the
+hostapd control socket lives in /data/misc/wifi/hostapd/ap0 and the
+hostapd "interface=" argument must be ap0 as well.
+
+The second hunk of the cm-14.1 patch (ip6tables rpfilter non-fatal) is
+NOT ported: cm-13.0's NatController never installs an rpfilter rule
+(it has no xt_rpfilter command at all), so there is nothing to make
+non-fatal.
+
+Change-Id: I7691210987f3e5c5274c390304dcdc35f81cd4ea
+---
+ server/SoftapController.cpp | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/server/SoftapController.cpp b/server/SoftapController.cpp
+--- a/server/SoftapController.cpp
++++ b/server/SoftapController.cpp
+@@ -56,5 +56,5 @@
+ #ifdef LIBWPA_CLIENT_EXISTS
+-static const char HOSTAPD_UNIX_FILE[]    = "/data/misc/wifi/hostapd/wlan0";
++static const char HOSTAPD_UNIX_FILE[]    = "/data/misc/wifi/hostapd/ap0";
+ static const char HOSTAPD_SOCKETS_DIR[]    = "/data/misc/wifi/sockets";
+ static const char HOSTAPD_DHCP_DIR[]    = "/data/misc/dhcp";
+ #endif
+@@ -278,5 +278,5 @@ int SoftapController::setSoftap(int argc, char *argv[]) {
+             "ignore_broadcast_ssid=%d\n"
+             "wowlan_triggers=any\n",
+-            argv[2], argv[3], channel, (channel <= 14) ? 'g' : 'a', hidden));
++            /*argv[2]*/"ap0", argv[3], channel, (channel <= 14) ? 'g' : 'a', hidden));
+ 
+     std::string fbuf;
+--
+2.53.0

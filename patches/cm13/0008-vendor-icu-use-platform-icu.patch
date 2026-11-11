@@ -1,0 +1,62 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: CoreXGT <aulia.ikbal09@gmail.com>
+Date: Wed, 11 Nov 2026 21:10:00 +0700
+Subject: [PATCH] vendor: keep the vendor ICU on cm-14.1, drop it on cm-13.0
+
+cm-13.0 only.
+
+The MIUI libicuuc.so must NOT overwrite the platform's own ICU 55.1 on
+cm-13.0: the platform also builds libicui18n from that ICU and the two
+builds are not ABI compatible (the platform's libicui18n references the
+icu_55 C++ vtables, which the MIUI ICU build does not have):
+
+    CANNOT LINK EXECUTABLE: cannot locate symbol
+    "_ZTVN6icu_5512CacheKeyBaseE" referenced by "/system/lib/libicui18n.so"
+
+That library is in the LD_PRELOAD chain (libmtk_symbols.so), so the
+failure hit every process init started and the device bootlooped into
+recovery.
+
+On cm-14.1 the vendor ICU has to stay: that platform ships ICU 58 and
+the MTK blobs need the ICU-55 flavour (the icu55.c shim in
+libmtk_symbols provides the ICU-55 entry points).
+
+The filter-out is kept on a single line on purpose.  A hand written
+patch of this file had a wrong hunk line count ("@@ -1,2 +1,13 @@" for a
+hunk that carried 14 new lines); git apply silently dropped the last line
+of the hunk, which left the filter-out call unterminated and the build
+died with
+
+    build/core/node_fns.mk:185: *** unterminated call to function
+    'filter-out': missing ')'.  Stop.
+
+This patch is therefore generated from "git diff" so that the hunk counts
+are always exact, and the call is written on one line so that a dropped
+continuation line cannot break it a second time.
+
+Change-Id: I0000000000000000000000000000000000000008
+---
+ nikel-vendor-blobs.mk | 14 ++++++++++++--
+ 1 file changed, 12 insertions(+), 2 deletions(-)
+
+diff --git a/nikel-vendor-blobs.mk b/nikel-vendor-blobs.mk
+index ce48c16..f4f4806 100755
+--- a/nikel-vendor-blobs.mk
++++ b/nikel-vendor-blobs.mk
+@@ -1,2 +1,12 @@
+-PRODUCT_COPY_FILES += \
+-	$(call find-copy-subdir-files,*,vendor/xiaomi/nikel/system/,system/)
++# The MIUI libicuuc.so must not overwrite the platform's own ICU on cm-13.0:
++# the platform builds libicui18n from that ICU and the two builds are not
++# ABI compatible (the platform's libicui18n references the icu_55 C++
++# vtables, which the MIUI ICU build does not have).  On cm-14.1 the vendor
++# ICU has to stay - that platform ships ICU 58 and the MTK blobs need the
++# ICU-55 flavour (the icu55.c shim in libmtk_symbols provides it).
++VENDOR_ICU_BLACKLIST :=
++ifeq ($(PLATFORM_VERSION),6.0.1)
++VENDOR_ICU_BLACKLIST := %:system/lib/libicuuc.so %:system/lib64/libicuuc.so
++endif
++
++PRODUCT_COPY_FILES += $(filter-out $(VENDOR_ICU_BLACKLIST),$(call find-copy-subdir-files,*,vendor/xiaomi/nikel/system/,system/))
+--
+2.53.0

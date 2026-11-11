@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: CoreXGT <aulia.ikbal09@gmail.com>
+Date: Tue, 10 Nov 2026 21:36:00 +0700
+Subject: [PATCH] Settings: declare config_gesture_settings_enabled (cm-13.0 shim)
+
+cm-13.0 port shim.
+
+The nikel device tree ships cm-14.1 era overlays, and
+packages/apps/Settings/res/values/config.xml is one of them. It overrides
+config_gesture_settings_enabled, a resource that only exists in
+cm-14.1's Settings, so aapt refuses the overlay:
+
+  error: Resource at config_gesture_settings_enabled appears in overlay
+  but not in the base package; use <add-resource> to add.
+
+The "Gestures" settings screen does not exist on Android 6.0.1, so the
+resource is only declared so aapt accepts the overlay; Settings never
+reads it.
+
+Change-Id: I0000000000000000000000000000000000000002
+---
+ res/values/config.xml | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/res/values/config.xml b/res/values/config.xml
+--- a/res/values/config.xml
++++ b/res/values/config.xml
+@@ -102,5 +102,10 @@
+     <bool name="config_enableManualSubProvisioning">true</bool>
+ 
+     <!-- Does the device allow updating the recovery. -->
+     <bool name="config_enableRecoveryUpdater">true</bool>
++
++    <!-- nikel cm-13.0: the "Gestures" settings screen does not exist on
++         Android 6.0.1, but the nikel overlay (written for cm-14.1) overrides
++         this resource. Declare it so aapt accepts the overlay. -->
++    <bool name="config_gesture_settings_enabled" translatable="false">false</bool>
+ </resources>
+--
+2.53.0

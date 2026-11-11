@@ -1,0 +1,45 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: CoreXGT <aulia.ikbal09@gmail.com>
+Date: Tue, 10 Nov 2026 21:35:00 +0700
+Subject: [PATCH] base: declare config_nightDisplayAvailable (cm-13.0 shim)
+
+cm-13.0 port shim.
+
+The nikel device tree ships cm-14.1 era overlays.
+frameworks/base/core/res/res/values/config.xml is one of them and it
+overrides config_nightDisplayAvailable, a resource that only exists in
+cm-14.1.
+
+aapt refuses an overlay that references a resource the base package does
+not have ("Resource at ... appears in overlay but not in the base
+package"), which fails the framework-res build with:
+
+  error: Resource at config_nightDisplayAvailable appears in overlay but
+  not in the base package; use <add-resource> to add.
+
+Night display does not exist on Android 6.0.1, so the resource is only
+declared so aapt accepts the overlay; nothing in the framework reads it.
+
+Change-Id: I0000000000000000000000000000000000000001
+---
+ core/res/res/values/config.xml | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/core/res/res/values/config.xml b/core/res/res/values/config.xml
+--- a/core/res/res/values/config.xml
++++ b/core/res/res/values/config.xml
+@@ -1069,7 +1069,12 @@
+     <!-- Minimum screen brightness setting allowed by the power manager.
+          The user is forbidden from setting the brightness below this level. -->
+     <integer name="config_screenBrightnessSettingMinimum">10</integer>
++
++    <!-- nikel cm-13.0: night display does not exist on Android 6.0.1, but the
++         nikel overlay (written for cm-14.1) overrides this resource. Declare
++         it so aapt accepts the overlay; nothing in the framework reads it. -->
++    <bool name="config_nightDisplayAvailable" translatable="false">false</bool>
+ 
+     <!-- Maximum screen brightness allowed by the power manager.
+          The user is forbidden from setting the brightness above this level. -->
+     <integer name="config_screenBrightnessSettingMaximum">255</integer>
+--
+2.53.0

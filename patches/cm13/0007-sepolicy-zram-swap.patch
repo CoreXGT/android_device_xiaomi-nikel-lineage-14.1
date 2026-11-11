@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: CoreXGT <aulia.ikbal09@gmail.com>
+Date: Tue, 10 Nov 2026 21:42:00 +0700
+Subject: [PATCH] sepolicy: allow init to swapon zram0 (nikel zRAM swap)
+
+cm-13.0 port of the cm-14.1 patch of the same name.
+
+init.zram.rc (device tree) sets /sys/block/zram0/disksize and runs
+mkswap+swapon on /dev/block/zram0, which carries the ram_device label.
+Give init rw_file_perms on it; the disksize write is already covered by
+the existing "allow init sysfs_type:file w_file_perms".
+
+cm-13.0 keeps the policy in external/sepolicy (not system/sepolicy), and
+its init.te has no ram_device rule yet.
+
+Change-Id: I0000000000000000000000000000000000000005
+---
+ init.te | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/init.te b/init.te
+--- a/init.te
++++ b/init.te
+@@ -156,5 +156,9 @@
+ # Write to sysfs nodes.
+ allow init sysfs_type:dir r_dir_perms;
+ allow init sysfs_type:file w_file_perms;
++
++# nikel zRAM swap: mkswap + swapon /dev/block/zram0 (device tree nikel
++# init.zram.rc). /dev/block/ram* carries the ram_device label.
++allow init ram_device:blk_file rw_file_perms;
+ 
+ # Transitions to seclabel processes in init.rc
+--
+2.53.0

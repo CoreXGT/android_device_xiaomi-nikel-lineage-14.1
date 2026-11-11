@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: CoreXGT <aulia.ikbal09@gmail.com>
+Date: Tue, 10 Nov 2026 21:41:00 +0700
+Subject: [PATCH] init: enable adbd at boot (cm-13.0)
+
+cm-13.0 port of the cm-14.1 patch of the same name.
+
+On cm-14.1 the adbd service lives in rootdir/init.usb.rc; on cm-13.0 it
+lives in rootdir/init.rc with the identical stanza. Keep the "disabled"
+line commented out so adbd comes up on boot instead of waiting for a
+USB property trigger (BUGFIXES.md #7).
+
+Change-Id: I0000000000000000000000000000000000000004
+---
+ rootdir/init.rc | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/rootdir/init.rc b/rootdir/init.rc
+--- a/rootdir/init.rc
++++ b/rootdir/init.rc
+@@ -609,5 +609,5 @@
+ service adbd /sbin/adbd --root_seclabel=u:r:su:s0
+     class core
+     socket adbd stream 660 system system
+-    disabled
++    #disabled
+     seclabel u:r:adbd:s0
+ 
+--
+2.53.0

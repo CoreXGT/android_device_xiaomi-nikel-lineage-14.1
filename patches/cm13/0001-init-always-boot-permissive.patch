@@ -1,0 +1,56 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: CoreXGT <aulia.ikbal09@gmail.com>
+Date: Tue, 10 Nov 2026 21:20:00 +0700
+Subject: [PATCH] init: always boot permissive on all build variants (cm-13.0)
+
+cm-13.0 port of the cm-14.1 patch of the same name.
+
+selinux_is_enforcing() returned true for user builds (ALLOW_DISABLE_SELINUX
+is only honoured when the kernel cmdline asks for it), so init forced the
+kernel into enforcing right at startup. Nikel's sepolicy is incomplete for
+the MTK partitions, so a user build stalls in early-init mount_all and
+never leaves the MI logo. Return false unconditionally so every variant
+boots with androidboot.selinux=permissive from LK.
+
+Also bump the init environment array from 32 to 64 entries: some MTK
+services (e.g. ril-daemon-mtk) require a very large number of sockets,
+which does not fit in 32 entries minus the other variables.
+
+Change-Id: I5bd86e4745e4a32530e5972112cac891e0b2cae9
+---
+ init/init.cpp | 11 +++++++++++----
+ 1 file changed, 7 insertions(+), 4 deletions(-)
+
+diff --git a/init/init.cpp b/init/init.cpp
+--- a/init/init.cpp
++++ b/init/init.cpp
+@@ -86,6 +86,9 @@ static char console_name[PROP_VALUE_MAX] = "/dev/console";
+ static time_t process_needs_restart;
+ 
+-static const char *ENV[32];
++/* nikel: some MTK services (e.g. ril-daemon-mtk) require very large number
++ * of sockets, which can't be contained in 32 entries minus other variables.
++ */
++static const char *ENV[64];
+ 
+ bool waiting_for_exec = false;
+ 
+@@ -927,12 +930,12 @@ static selinux_enforcing_status selinux_status_from_cmdline() {
+     return false;
+ }
+ 
+ static bool selinux_is_enforcing(void)
+ {
+-    if (ALLOW_DISABLE_SELINUX) {
+-        return selinux_status_from_cmdline() == SELINUX_ENFORCING;
+-    }
+-    return true;
++    /* nikel cm-13.0: always boot permissive for all variants
++     * (this tree's SELinux policy is incomplete; enforcing on user
++     * builds wedges the boot at early-init mount_all). */
++    return false;
+ }
+ 
+ int selinux_reload_policy(void)
+--
+2.53.0
