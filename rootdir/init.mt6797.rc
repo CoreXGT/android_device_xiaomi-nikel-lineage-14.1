@@ -3,7 +3,11 @@ import init.modem.rc
 import /init.zram.rc
 
 on init
-    export LD_PRELOAD "libmtk_symbols.so"
+    # libmtk_libc_n.so must come first: it provides the LIBC_N flavour of
+    # __aeabi_mem*/__*_chk/__gnu_Unwind_Find_exidx that some 7.1-era MTK
+    # vendor blobs reference.  Without it the linker aborts every process
+    # that preloads libmtk_symbols.so and the device reboots into recovery.
+    export LD_PRELOAD "libmtk_libc_n.so libmtk_symbols.so"
 
     # mount points
     mkdir /protect_f 0771 system system
