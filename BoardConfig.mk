@@ -107,4 +107,19 @@ TARGET_SYSTEM_PROP := $(LOCAL_PATH)/system.prop
 
 # Seccomp filter
 BOARD_SECCOMP_POLICY := $(LOCAL_PATH)/seccomp
+
+# MTK RIL class (MediaTekRIL + MtkEccList).
+#
+# The subclass is written against the cm-14.1 telephony API. cm-13.0's RIL
+# base class differs in three places:
+#   * processUnsolicited()/processSolicited() take no slot argument there
+#   * setupDataCall() takes radioTechnology/profile/authType as Strings
+# so a separate copy of the two files lives in ril-cm13/ for that platform.
+# (PLATFORM_VERSION comes from build/core/version_defaults.mk, which is
+# included before the device makefiles.)
+ifeq ($(PLATFORM_VERSION),6.0.1)
+BOARD_RIL_CLASS := ../../../device/xiaomi/nikel/ril-cm13
+else
 BOARD_RIL_CLASS := ../../../device/xiaomi/nikel/ril
+endif
+
